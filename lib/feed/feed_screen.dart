@@ -11,6 +11,7 @@ import '../profile/profile_screen.dart';
 import '../feed/comments_screen.dart';
 import 'post_user_header.dart';
 import 'add_create_selector_sheet.dart';
+import '../auth/services/college_detector.dart';
 
 class FeedScreen extends StatefulWidget {
   const FeedScreen({super.key});
@@ -44,7 +45,7 @@ class _FeedScreenState extends State<FeedScreen> {
         .get();
 
     if (!mounted) return;
-    setState(() => _collegeId = doc.data()?['collegeId']);
+    setState(() => _collegeId = canonicalCollegeId(doc.data()));
   }
 
   @override

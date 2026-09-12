@@ -8,6 +8,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../navigation/bottom_nav_shell.dart';
+import '../../auth/services/college_detector.dart';
 
 String generateAnonId() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -140,6 +141,7 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
         'nickname': _nicknameController.text.trim(),
         'bio': _bioController.text.trim(),
         'college': _college,
+        'collegeId': collegeIdForEmail(user.email, fallbackCollege: _college),
         'year': _year,
         'branch': _branch,
         'profileCompleted': true,

@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
 import '../../app/auth_gate.dart';
+import '../../auth/services/college_detector.dart';
 
 class SignupScreen extends StatefulWidget {
   const SignupScreen({super.key});
@@ -84,6 +85,7 @@ class _SignupScreenState extends State<SignupScreen> {
           'uid': user.uid,
           'email': email,
           'college': _college,
+          'collegeId': collegeIdForEmail(email, fallbackCollege: _college),
           'profileCompleted': false,
           'createdAt': FieldValue.serverTimestamp(),
         },

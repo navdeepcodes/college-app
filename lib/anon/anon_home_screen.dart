@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import 'college_anon_chat_screen.dart';
+import '../auth/services/college_detector.dart';
 
 class AnonHomeScreen extends StatefulWidget {
   const AnonHomeScreen({super.key});
@@ -12,7 +13,7 @@ class AnonHomeScreen extends StatefulWidget {
 }
 
 class _AnonHomeScreenState extends State<AnonHomeScreen> {
-  String? _college; // ✅ FIXED
+  String? _collegeId; // canonical college identity (collegeId, legacy fallback)
   bool _loading = true;
 
   @override
@@ -39,7 +40,7 @@ class _AnonHomeScreenState extends State<AnonHomeScreen> {
       if (!mounted) return;
 
       setState(() {
-        _college = snap.data()?['college']; // ✅ CORRECT FIELD
+        _collegeId = canonicalCollegeId(snap.data());
         _loading = false;
       });
     } catch (e) {
@@ -61,7 +62,7 @@ class _AnonHomeScreenState extends State<AnonHomeScreen> {
       );
     }
 
-    if (_college == null) {
+    if (_collegeId == null || _collegeId!.isEmpty) {
       return const Scaffold(
         backgroundColor: Colors.black,
         body: Center(
@@ -140,11 +141,13 @@ class _AnonHomeScreenState extends State<AnonHomeScreen> {
             icon: Icons.school_rounded,
             highlight: true,
             onTap: () {
+              final collegeId = _collegeId;
+              if (collegeId == null || collegeId.isEmpty) return;
               Navigator.push(
                 context,
                 MaterialPageRoute(
                   builder: (_) => CollegeAnonChatScreen(
-                    chatId: 'college_$_college', // ✅ FIXED
+                    chatId: 'college_$collegeId',
                     chatName: 'Your College Anon',
                   ),
                 ),

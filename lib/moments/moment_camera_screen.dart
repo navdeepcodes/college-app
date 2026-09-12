@@ -9,6 +9,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'moment_preview_screen.dart';
+import '../auth/services/college_detector.dart';
 
 class MomentCameraScreen extends StatefulWidget {
   const MomentCameraScreen({super.key});
@@ -152,8 +153,8 @@ class _MomentCameraScreenState extends State<MomentCameraScreen>
     if (data == null) return;
 
     final anonId = data['anonId'];
-    final collegeId = data['collegeId'];
-    if (anonId == null || collegeId == null) return;
+    final collegeId = canonicalCollegeId(data);
+    if (anonId == null || collegeId.isEmpty) return;
 
     final supabase = Supabase.instance.client;
     final ext = isVideo ? 'mp4' : 'jpg';
