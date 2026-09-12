@@ -240,11 +240,14 @@ class _MomentCard extends StatelessWidget {
           ),
         );
       }
-    } catch (_) {
+    } catch (e) {
+      // Rules deny third-party updates to a moment doc (owner-only),
+      // so this is a permission failure, not an offline condition.
+      debugPrint('Report failed: $e');
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('You are offline. Report will sync later.'),
+          SnackBar(
+            content: Text('Report failed. Please try again later.'),
             backgroundColor: Colors.black87,
           ),
         );

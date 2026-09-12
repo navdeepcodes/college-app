@@ -4,7 +4,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 
 import '../feed/widgets/friend_button.dart';
 import '../settings/settings_screen.dart';
-import '../chat/chat_screen.dart';
 import 'edit_profile_screen.dart';
 import 'user_posts_grid.dart';
 import 'friends_list_screen.dart';

@@ -3,7 +3,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import '../services/storage_service.dart';
-import '../services/presence_service.dart';
 import '../notifications/notifications_screen.dart';
 import '../chat/chats_list_screen.dart';
 import '../moments/moments_screen.dart';
@@ -11,7 +10,6 @@ import '../profile/profile_screen.dart';
 import '../feed/comments_screen.dart';
 import 'post_user_header.dart';
 import 'add_create_selector_sheet.dart';
-import '../auth/services/college_detector.dart';
 
 class FeedScreen extends StatefulWidget {
   const FeedScreen({super.key});
@@ -23,7 +21,6 @@ class FeedScreen extends StatefulWidget {
 class _FeedScreenState extends State<FeedScreen> {
   int _selectedTab = 0;
   late final String _uid;
-  String? _collegeId;
 
   late final StorageService _storage;
 
@@ -34,45 +31,16 @@ class _FeedScreenState extends State<FeedScreen> {
 
     // ✅ CORRECT: no Supabase.instance here
     _storage = StorageService();
-
-    _loadCollege();
-  }
-
-  Future<void> _loadCollege() async {
-    final doc = await FirebaseFirestore.instance
-        .collection('users')
-        .doc(_uid)
-        .get();
-
-    if (!mounted) return;
-    setState(() => _collegeId = canonicalCollegeId(doc.data()));
   }
 
   @override
   Widget build(BuildContext context) {
-    final onlineText = _collegeId == null
-        ? null
-        : PresenceService.format(
-      PresenceService.estimateOnline(
-        collegeBase: 5000,
-        growthFactor: 1.0,
-      ),
-    );
-
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 16,
-        title: Row(
-          children: [
-            const Text(
-              'Campus',
-              style: TextStyle(fontWeight: FontWeight.w700),
-            ),
-            if (onlineText != null) ...[
-              const SizedBox(width: 8),
-              _OnlineBadge(text: onlineText),
-            ],
-          ],
+        title: const Text(
+          'Campus',
+          style: TextStyle(fontWeight: FontWeight.w700),
         ),
         actions: [
           if (_selectedTab == 0)
@@ -242,6 +210,18 @@ class _MergedFeed extends StatelessWidget {
                           width: double.infinity,
                         ),
                       ),
+                      if (data['caption'] is String &&
+                          (data['caption'] as String).isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(
+                              14, 10, 14, 0),
+                          child: Text(
+                            data['caption'] as String,
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodyMedium,
+                          ),
+                        ),
                       Padding(
                         padding: const EdgeInsets.fromLTRB(
                             14, 10, 14, 14),
@@ -413,27 +393,6 @@ class _ActionButton extends StatelessWidget {
           const SizedBox(width: 6),
           Text(count.toString()),
         ],
-      ),
-    );
-  }
-}
-
-class _OnlineBadge extends StatelessWidget {
-  final String text;
-  const _OnlineBadge({required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding:
-      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: Colors.deepPurple.withOpacity(0.2),
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Text(
-        '🔥 $text online',
-        style: const TextStyle(fontSize: 12),
       ),
     );
   }

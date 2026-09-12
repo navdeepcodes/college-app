@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 
 import '../chat/chat_screen.dart';
 import 'profile_screen.dart';
@@ -12,8 +11,6 @@ class FriendsListScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final currentUid = FirebaseAuth.instance.currentUser!.uid;
-
     return Scaffold(
       appBar: AppBar(title: const Text('Friends')),
       body: StreamBuilder<QuerySnapshot>(

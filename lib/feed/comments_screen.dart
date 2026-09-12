@@ -17,26 +17,39 @@ class _CommentsScreenState extends State<CommentsScreen> {
 
   Future<void> _sendComment() async {
     final text = _controller.text.trim();
-    if (text.isEmpty) return;
+    if (text.isEmpty || _sending) return;
 
     setState(() => _sending = true);
 
-    final uid = FirebaseAuth.instance.currentUser!.uid;
-    final postRef =
-    FirebaseFirestore.instance.collection('posts').doc(widget.postId);
+    try {
+      final uid = FirebaseAuth.instance.currentUser!.uid;
+      final postRef =
+      FirebaseFirestore.instance.collection('posts').doc(widget.postId);
 
-    await postRef.collection('comments').add({
-      'userId': uid,
-      'text': text,
-      'createdAt': FieldValue.serverTimestamp(),
-    });
+      await postRef.collection('comments').add({
+        'userId': uid,
+        'text': text,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
 
-    await postRef.update({
-      'commentsCount': FieldValue.increment(1),
-    });
+      await postRef.update({
+        'commentsCount': FieldValue.increment(1),
+      });
 
-    _controller.clear();
-    setState(() => _sending = false);
+      _controller.clear();
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Comment not sent. Try again.'),
+            backgroundColor: Colors.redAccent,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
   }
 
   @override

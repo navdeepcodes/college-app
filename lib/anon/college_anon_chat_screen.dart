@@ -22,6 +22,7 @@ class _CollegeAnonChatScreenState extends State<CollegeAnonChatScreen> {
   final TextEditingController _msgController = TextEditingController();
   bool _sending = false;
   String? _anonId;
+  DateTime? _lastSent;
 
   @override
   void initState() {
@@ -63,6 +64,18 @@ class _CollegeAnonChatScreenState extends State<CollegeAnonChatScreen> {
       return;
     }
 
+    // Real 10s client-side cooldown between sends.
+    final lastSent = _lastSent;
+    if (lastSent != null) {
+      final elapsed =
+          DateTime.now().difference(lastSent).inMilliseconds;
+      if (elapsed < 10000) {
+        final remaining = (10000 - elapsed) ~/ 1000 + 1;
+        _showError('Slow down! $remaining s before sending again.');
+        return;
+      }
+    }
+
     // Add haptic feedback for a premium feel
     HapticFeedback.lightImpact();
 
@@ -94,9 +107,10 @@ class _CollegeAnonChatScreenState extends State<CollegeAnonChatScreen> {
       });
 
       await batch.commit();
+      _lastSent = DateTime.now();
 
     } catch (e) {
-      _showError('Slow down! 10s cooldown active.');
+      _showError('Message not sent. Try again.');
     } finally {
       if (mounted) setState(() => _sending = false);
     }
