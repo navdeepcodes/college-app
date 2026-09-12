@@ -1,0 +1,18 @@
+{
+  "name": "functions",
+  "description": "Cloud Functions for Firebase",
+  "private": true,
+  "engines": {
+    "node": "18"
+  },
+  "scripts": {
+    "serve": "firebase emulators:start --only functions",
+    "deploy": "firebase deploy --only functions",
+    "start": "npm run serve",
+    "lint": "echo \"lint disabled\""
+  },
+  "dependencies": {
+    "firebase-admin": "^12.0.0",
+    "firebase-functions": "^4.5.0"
+  }
+}
