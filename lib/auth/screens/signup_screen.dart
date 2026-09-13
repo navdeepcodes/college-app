@@ -104,9 +104,11 @@ class _SignupScreenState extends State<SignupScreen> {
             (_) => false,
       );
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Signup failed: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Signup failed: $e')),
+        );
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }

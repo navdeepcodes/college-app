@@ -48,6 +48,10 @@ lib/secrets.dart
 .env
 *.env
 .firebaserc
+android/app/google-services.json
+android/key.properties
+*.jks
+*.keystore
 
 # Android Studio will place build artifacts here
 /android/app/debug

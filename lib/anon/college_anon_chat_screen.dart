@@ -131,6 +131,7 @@ class _CollegeAnonChatScreenState extends State<CollegeAnonChatScreen> {
   }
 
   void _showError(String msg) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(msg, style: const TextStyle(fontWeight: FontWeight.bold)),
@@ -192,7 +193,22 @@ class _CollegeAnonChatScreenState extends State<CollegeAnonChatScreen> {
                     .limit(50)
                     .snapshots(),
                 builder: (context, snapshot) {
-                  if (!snapshot.hasData) return const SizedBox();
+                  if (snapshot.hasError) {
+                    return const Center(
+                      child: Text(
+                        'Failed to load messages',
+                        style: TextStyle(color: Colors.white38),
+                      ),
+                    );
+                  }
+
+                  if (!snapshot.hasData) {
+                    return const Center(
+                      child: CircularProgressIndicator(
+                        color: Colors.deepPurpleAccent,
+                      ),
+                    );
+                  }
 
                   final now = DateTime.now();
                   final docs = snapshot.data!.docs.where((doc) {

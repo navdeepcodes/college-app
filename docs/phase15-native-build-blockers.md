@@ -1,15 +1,78 @@
 # Phase 15 — Native build blockers investigation
 
-**Date:** 2026-09-13
-**Scope:** Read-only investigation of what would break a native Android/iOS build today, so a
-release build can be attempted with eyes open. **No build was executed** (see constraints
-below) — this is the "know before you build" pass.
+**Date:** 2026-09-13, updated 2026-09-14 (Phase 18)
+**Scope:** What breaks a native Android/iOS build today.
+
+**Update (Phase 18):** the original version of this doc was read-only inspection — `flutter
+build apk` was never actually run, only inferred. It was actually run this phase. That
+surfaced two real blockers this doc had missed entirely (§0 below) underneath the
+already-known google-services.json gap — the build never even reached the point where a
+missing JSON would matter. One (§0.1) is fixed. One (§0.2) is a genuine version-compatibility
+issue that needs a deliberate, tested decision, not a guess made under time pressure — left
+for the user per the "don't blindly upgrade" constraint.
 
 ---
 
-## ANDROID — BLOCKER (confirmed)
+## ANDROID — verified by actually running `flutter build apk --debug` (Phase 18)
 
-### 1. `google-services.json` is missing while the google-services Gradle plugin is applied — HARD BUILD FAILURE
+### 0.1 [FIXED] `android/settings.gradle.kts` / `android/app/build.gradle.kts` never wired the Flutter Gradle plugin at all
+
+Before any other issue could even surface, the build failed immediately with:
+
+```
+[!] Your app is using an unsupported Gradle project. To fix this problem, create a new
+project by running `flutter create -t app <app-directory>` and then move the dart code,
+assets and pubspec.yaml to the new project.
+```
+
+Root cause: current Flutter (3.38.5) requires the declarative Flutter Gradle plugin —
+`pluginManagement { includeBuild("$flutterSdkPath/packages/flutter_tools/gradle") }` plus
+`id("dev.flutter.flutter-plugin-loader")` in `settings.gradle.kts`, and
+`id("dev.flutter.flutter-gradle-plugin")` plus a `flutter { source = "../.." }` block in
+`app/build.gradle.kts`. This project's Gradle scaffold predated that convention and had
+**none** of it — confirmed pre-existing (reproduced identically on the pre-Phase-18 commit via
+`git stash`), not something this session introduced.
+
+**Fixed**, checked against the exact templates shipped in the installed Flutter SDK
+(`packages/flutter_tools/templates/app/android-kotlin.tmpl/`), not guessed from memory. The
+project's existing customizations (applicationId, compileSdk/minSdk/targetSdk, multidex, the
+custom Flutter-engine-artifacts maven repo) were preserved, not replaced with template
+defaults.
+
+### 0.2 [BLOCKED — needs a deliberate version decision, not applied] Kotlin/AGP toolchain incompatibility
+
+With 0.1 fixed, the build gets further and fails differently:
+
+```
+* Where: Build file '.../android/app/build.gradle.kts' line: 4
+* What went wrong:
+An exception occurred applying plugin request [id: 'org.jetbrains.kotlin.android', version: '1.9.24']
+> Failed to apply plugin 'org.jetbrains.kotlin.android'.
+   > Could not create an instance of type org.jetbrains.kotlin.gradle.plugin.mpp.KotlinAndroidTarget.
+      > Could not generate a decorated class for type KotlinAndroidTarget.
+         > com/android/build/gradle/api/BaseVariant
+```
+
+This is Kotlin Gradle Plugin 1.9.24 failing to load against AGP 8.2.2 / Gradle 8.4 as
+installed on this machine's toolchain (Android SDK 36.1.0, build-tools 36.1.0 — `flutter
+doctor` confirms these are current). This class of failure is a known AGP/Kotlin-plugin
+version-compatibility break, not a config typo.
+
+**Why not fixed here:** the correct remedy is bumping AGP + Kotlin Gradle Plugin (and likely
+the Gradle wrapper) to a mutually-compatible modern trio — exactly the "major dependency
+upgrade with migration risk" the standing constraints say to defer to a dedicated, tested
+session rather than guess at under time pressure inside a broader hardening pass. Doing it
+blind, with no device/emulator smoke test afterward, risks trading one broken build for a
+differently-broken one.
+
+**Recommended next step (human-directed session):** bump `com.android.application` /
+`com.android.library` and `org.jetbrains.kotlin.android` in `android/settings.gradle.kts` to a
+verified-compatible pair for Gradle 8.4 (or bump the Gradle wrapper too), then re-run `flutter
+build apk --debug` and fix forward from whatever the next error is — do this as its own
+focused piece of work with a real device/emulator check afterward, not folded into an
+unrelated feature change.
+
+### 1. `google-services.json` is missing while the google-services Gradle plugin is applied — HARD BUILD FAILURE (still applies, once 0.2 is resolved)
 
 - `android/app/build.gradle.kts:4` applies `id("com.google.gms.google-services")` (pinned at
   `4.4.1` in `android/settings.gradle.kts:12`).
@@ -27,13 +90,22 @@ Android build has succeeded on this machine in the recoverable history.
 Firebase console and place it at `android/app/google-services.json`. It is the app's own
 public client config — add to the repo after the user obtains it.
 
-### 2. Everything else Android is coherent
+### 2. Everything else Android
 
-- Kotlin DSL template; AGP 8.2.2; Kotlin 1.9.24; Java 17 toolchain (`build.gradle.kts`).
-- `compileSdk 34 / targetSdk 34 / minSdk 23`, `multiDexEnabled = true`.
+- Kotlin DSL template; Java 17 toolchain (`build.gradle.kts`). AGP 8.2.2 / Kotlin 1.9.24 are
+  the versions actually incompatible per §0.2 above — not "coherent" as this doc previously
+  (incorrectly, without having run a build) claimed.
+- `compileSdk 34 / targetSdk 34 / minSdk (flutter.minSdkVersion)`, `multiDexEnabled = true`.
 - `namespace == applicationId == com.navdeep.collegeapp.college_app`.
-- Phase 13 removed the camera/video_player/path_provider/firebase_messaging plugins — their
-  native registrations are gone, shrinking the Gradle surface (fewer NDK/ABI pieces).
+- Phase 13 removed the camera/video_player/path_provider/firebase_messaging plugins, then
+  Phase 17/18 restored camera + video_player (Moments was reinstated, gated behind
+  `kMomentsEnabled = false` — see docs/phase17-moments-restoration.md). Their Android/iOS
+  plugin registrants were already present in the committed `GeneratedPluginRegistrant` files
+  before this session (Phase 13's "0 references on all platforms" claim only actually held for
+  macOS — its own diff only touched the macOS registrant).
+- Phase 18 also added release-signing scaffolding (`android/key.properties`-based, git-ignored,
+  falls back to debug signing when absent — see `android/app/build.gradle.kts`). No keystore
+  was created or committed; generating one is a human action.
 
 ### 3. Verification command (after the JSON lands)
 
