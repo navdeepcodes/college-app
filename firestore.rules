@@ -14,6 +14,12 @@ rules_version = '2';
         return request.auth.uid == uid;
       }
 
+      // The single platform administrator (mirrors ADMIN_UID in lib/core/admin.dart).
+      // Governs the club-request review flow and the club-members bootstrap.
+      function isAdmin() {
+        return request.auth.uid == 'OImOQirOL7eQNftKASo4FTrF6XA3';
+      }
+
       // Canonical collegeId derived from the Google-verified ID-token email.
       // Mirrors CollegeDetector.detect() (lib/auth/services/college_detector.dart)
       // for the four sanctioned college domains; 'unknown' otherwise. Used to
@@ -86,13 +92,79 @@ rules_version = '2';
       }
 
       // =========================
+      // CLUB REQUESTS + NOTIFICATIONS + MEMBERS
+      // =========================
+
+      match /club_requests/{requestId} {
+        // Creator always sees their own request; the platform admin sees all.
+        allow read: if isSignedIn()
+          && (isAdmin() || resource.data.ownerUid == request.auth.uid);
+
+        // Only the requester can submit their own request, always pending.
+        allow create: if isSignedIn()
+          && request.resource.data.ownerUid == request.auth.uid
+          && request.resource.data.clubName is string
+          && request.resource.data.clubName.size() > 0
+          && request.resource.data.status == 'pending';
+
+        // Approve/reject transitions are admin-only.
+        allow update: if isAdmin();
+        allow delete: if isAdmin();
+      }
+
+      match /notifications/{notificationId} {
+        // Recipient-only read: no side-channel, no reading others' mail.
+        allow read: if isSignedIn() && resource.data.toUid == request.auth.uid;
+
+        // Every notification MUST name a recipient other than the sender. This
+        // fixes the historical toUid-missing bug (create_club_screen.dart) at
+        // the database boundary: a notification with no recipient is rejected.
+        allow create: if isSignedIn()
+          && request.resource.data.fromUid == request.auth.uid
+          && request.resource.data.toUid is string
+          && request.resource.data.toUid.size() > 0
+          && request.resource.data.toUid != request.auth.uid;
+
+        // Recipients may dismiss their own notifications.
+        allow update, delete: if isSignedIn()
+          && resource.data.toUid == request.auth.uid;
+      }
+
+      match /club_members/{memberId} {
+        allow read: if isSignedIn();
+
+        // Members are added by a club admin; the platform admin bootstraps the
+        // requester as the club's first (admin) member on approval.
+        allow create: if isSignedIn() && (
+          isAdmin()
+          || get(/databases/$(database)/documents/clubs/$(request.resource.data.clubId))
+              .data.admins.hasAny([request.auth.uid])
+        );
+        allow update, delete: if isSignedIn() && (
+          isAdmin()
+          || get(/databases/$(database)/documents/clubs/$(request.resource.data.clubId))
+              .data.admins.hasAny([request.auth.uid])
+        );
+      }
+
+      // =========================
       // CLUBS
       // =========================
       match /clubs/{clubId} {
         allow read: if true;
 
         allow create: if isSignedIn()
-          && request.resource.data.admins == [request.auth.uid];
+          && (
+            // self-creation: the creator is the sole initial admin
+            request.resource.data.admins == [request.auth.uid]
+            ||
+            // platform-admin bootstrap on behalf of an approved requester
+            // (admin_club_requests_screen._approve): the club is owned by the
+            // requester, created by the admin
+            (isAdmin()
+             && request.resource.data.ownerUid is string
+             && request.resource.data.ownerUid != request.auth.uid)
+          );
 
         allow update, delete: if isSignedIn()
           && resource.data.admins.hasAny([request.auth.uid]);

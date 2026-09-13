@@ -6,6 +6,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../core/admin.dart';
+
 class CreateClubScreen extends StatefulWidget {
   const CreateClubScreen({super.key});
 
@@ -79,6 +81,10 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
         'requestId': requestRef.id,
         'clubName': _clubNameController.text.trim(),
         'fromUid': user.uid,
+        // Recipient is the platform admin: notifications are queried by toUid
+        // (notifications_screen.dart), and the Firestore rule rejects any
+        // notification without a recipient.
+        'toUid': ADMIN_UID,
         'createdAt': FieldValue.serverTimestamp(),
         'read': false,
       });
