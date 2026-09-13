@@ -149,13 +149,19 @@ function isOwnCollegeRoom(chatId) {
       // EVENTS
       // =========================
       match /events/{eventId} {
-        allow read: if true;
+        // College-scoped, mirroring the campus feed: an event is readable only
+        // by members of the college stamped on it (written from the creator's
+        // users.collegeId). Legacy unstamped events are hidden (strictest-first).
+        allow read: if isSignedIn()
+          && resource.data.collegeId == userCollege();
 
         allow create: if isSignedIn()
-          && request.resource.data.createdBy == request.auth.uid;
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.collegeId == userCollege();
 
         allow update, delete: if isSignedIn()
-          && resource.data.createdBy == request.auth.uid;
+          && resource.data.createdBy == request.auth.uid
+          && resource.data.collegeId == userCollege();
       }
 
       // =========================
@@ -168,11 +174,17 @@ function isOwnCollegeRoom(chatId) {
           && (isAdmin() || resource.data.ownerUid == request.auth.uid);
 
         // Only the requester can submit their own request, always pending.
+        // A student-ID upload is mandatory (create_club_screen uploads to the
+        // club_id_cards Supabase bucket and stores the URL) — a request with no
+        // identity card is rejected so the admin review always has something
+        // to verify.
         allow create: if isSignedIn()
           && request.resource.data.ownerUid == request.auth.uid
           && request.resource.data.clubName is string
           && request.resource.data.clubName.size() > 0
-          && request.resource.data.status == 'pending';
+          && request.resource.data.status == 'pending'
+          && request.resource.data.idCardUrl is string
+          && request.resource.data.idCardUrl.size() > 0;
 
         // Approve/reject transitions are admin-only.
         allow update: if isAdmin();
@@ -198,7 +210,17 @@ function isOwnCollegeRoom(chatId) {
       }
 
       match /club_members/{memberId} {
-        allow read: if isSignedIn();
+        // Membership is private: a user may read their OWN membership rows
+        // (the "Your clubs" query is `where userId == uid`), a club's admins
+        // may read that club's rows, and the platform admin may read all.
+        // Previously any signed-in user could enumerate everyone's clubs.
+        allow read: if isSignedIn()
+          && (
+            resource.data.userId == request.auth.uid
+            || get(/databases/$(database)/documents/clubs/$(resource.data.clubId))
+                .data.admins.hasAny([request.auth.uid])
+            || isAdmin()
+          );
 
         // Members are added by a club admin; the platform admin bootstraps the
         // requester as the club's first (admin) member on approval.
@@ -212,6 +234,167 @@ function isOwnCollegeRoom(chatId) {
           || get(/databases/$(database)/documents/clubs/$(request.resource.data.clubId))
               .data.admins.hasAny([request.auth.uid])
         );
+      }
+
+      match /club_join_requests/{requestId} {
+        // Applicants may read their OWN pending request ("Request to Join");
+        // a club's admins review and act on its pending requests; the platform
+        // admin oversees all.
+        allow read: if isSignedIn()
+          && (
+            resource.data.userId == request.auth.uid
+            || isAdmin()
+            || get(/databases/$(database)/documents/clubs/$(resource.data.clubId))
+                .data.admins.hasAny([request.auth.uid])
+          );
+
+        allow create: if isSignedIn()
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.clubId is string
+          && request.resource.data.clubId.size() > 0
+          && request.resource.data.status == 'pending';
+
+        // Only the club's admins resolve requests (approve/decline/clear).
+        allow update, delete: if isSignedIn()
+          && (
+            isAdmin()
+            || get(/databases/$(database)/documents/clubs/$(resource.data.clubId))
+                .data.admins.hasAny([request.auth.uid])
+          );
+      }
+
+      // =========================
+      // 1:1 CHATS (MEMBERSHIP-SCOPED)
+      // =========================
+      // Authz is by the members array, not college: a 1:1 chat is private to
+      // its two members. chatId = sorted-joined member uids (chat_screen.dart),
+      // and create requires canonical sorted order so a pair cannot mint
+      // duplicate rooms or read another pair's chat.
+      function isChatMember(chatId) {
+        let members = get(
+          /databases/$(database)/documents/chats/$(chatId)
+        ).data.members;
+        return members is list && members.hasAny([request.auth.uid]);
+      }
+
+      match /chats/{chatId} {
+        allow read: if isSignedIn() && isChatMember(chatId);
+
+        allow create: if isSignedIn()
+          && request.resource.data.members is list
+          && request.resource.data.members.size() == 2
+          && request.resource.data.members.hasAll([request.auth.uid])
+          && request.resource.data.members[0] != request.resource.data.members[1]
+          && request.resource.data.members[0] < request.resource.data.members[1];
+
+        // Any member updates the conversation footer (lastMessage preview).
+        allow update: if isSignedIn() && isChatMember(chatId)
+          && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['lastMessage', 'lastMessageAt']);
+
+        allow delete: if false;
+
+        match /messages/{messageId} {
+          allow read: if isSignedIn() && isChatMember(chatId);
+
+          // Immutable once sent; the author is the sender; recipient differs.
+          allow create: if isSignedIn()
+            && isChatMember(chatId)
+            && request.resource.data.fromUid == request.auth.uid
+            && request.resource.data.toUid is string
+            && request.resource.data.toUid != request.auth.uid
+            && request.resource.data.toUid.size() > 0
+            && request.resource.data.text is string
+            && request.resource.data.text.trim().size() > 0
+            && request.resource.data.status == 'sent'
+            && request.resource.data.createdAt == request.time;
+
+          // Only the RECIPIENT may bump status (sent -> delivered -> seen).
+          allow update: if isSignedIn()
+            && isChatMember(chatId)
+            && resource.data.toUid == request.auth.uid
+            && request.resource.data.diff(resource.data).affectedKeys()
+                .hasOnly(['status']);
+
+          allow delete: if false;
+        }
+      }
+
+      // =========================
+      // FRIENDS + FRIEND REQUESTS
+      // =========================
+      match /friends/{friendId} {
+        // Visible only to the two friends; a friends-list query
+        // (`where members arrayContains uid`) passes because every returned
+        // doc contains the caller.
+        allow read: if isSignedIn()
+          && resource.data.members is list
+          && resource.data.members.hasAny([request.auth.uid]);
+
+        // Mutual two-person edge: the actor is one member, the other differs.
+        // friendsCount counters are bumped server-side (friendCreated Cloud
+        // Function) so no client writes a peer's users doc.
+        allow create: if isSignedIn()
+          && request.resource.data.members is list
+          && request.resource.data.members.size() == 2
+          && request.resource.data.members.hasAll([request.auth.uid])
+          && request.resource.data.members[0] != request.resource.data.members[1];
+
+        allow update: if false;
+
+        allow delete: if isSignedIn()
+          && resource.data.members.hasAny([request.auth.uid]);
+      }
+
+      match /friend_requests/{requestId} {
+        // Reachable only by the sender or the recipient.
+        allow read: if isSignedIn()
+          && (resource.data.fromUid == request.auth.uid
+              || resource.data.toUid == request.auth.uid);
+
+        allow create: if isSignedIn()
+          && request.resource.data.fromUid == request.auth.uid
+          && request.resource.data.toUid is string
+          && request.resource.data.toUid.size() > 0
+          && request.resource.data.toUid != request.auth.uid
+          && request.resource.data.status == 'pending';
+
+        // Only the recipient decides (accept/decline).
+        allow update: if isSignedIn()
+          && resource.data.toUid == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['status']);
+
+        // Sender may withdraw; recipient clears on accept/decline.
+        allow delete: if isSignedIn()
+          && (resource.data.fromUid == request.auth.uid
+              || resource.data.toUid == request.auth.uid);
+      }
+
+      // =========================
+      // CLUB CHATS (MEMBERSHIP-GATED)
+      // =========================
+      // Visible to club members; authored by the member. Membership is derived
+      // from club_members/{clubId}_{userId} (the clubs doc carries admins, no
+      // members array) — same source the join flow writes.
+      function isClubMember(clubId) {
+        let memberId = clubId + '_' + request.auth.uid;
+        return exists(
+          /databases/$(database)/documents/club_members/$(memberId)
+        );
+      }
+
+      match /club_chats/{clubId}/messages/{messageId} {
+        allow read: if isSignedIn() && isClubMember(clubId);
+
+        allow create: if isSignedIn()
+          && isClubMember(clubId)
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.text is string
+          && request.resource.data.text.trim().size() > 0
+          && request.resource.data.createdAt == request.time;
+
+        allow update, delete: if false;
       }
 
       // =========================
@@ -239,27 +422,15 @@ function isOwnCollegeRoom(chatId) {
         match /posts/{postId} {
           allow read: if true;
 
+          // Membership comes from club_members/{clubId}_{uid} (the clubs doc
+          // carries admins only, no members array) — same source club_chats uses.
           allow create: if isSignedIn()
-            && get(/databases/$(database)/documents/clubs/$(clubId))
-                .data.members.hasAny([request.auth.uid]);
+            && isClubMember(clubId);
 
           allow update, delete: if isSignedIn()
             && get(/databases/$(database)/documents/clubs/$(clubId))
                 .data.admins.hasAny([request.auth.uid]);
         }
-      }
-
-      // =========================
-      // MOMENTS (EPHEMERAL)
-      // =========================
-      match /moments/{momentId} {
-        allow read: if true;
-
-        allow create: if isSignedIn()
-          && request.resource.data.userId == request.auth.uid;
-
-        allow update, delete: if isSignedIn()
-          && resource.data.userId == request.auth.uid;
       }
 
       // =========================

@@ -104,6 +104,17 @@ async function main() {
       text: 'first!',
       createdAt: Timestamp.now(),
     });
+    await setDoc(doc(db, 'events', 'ev-nmit'), {
+      title: 'Tech Fest', createdBy: NMIT, collegeId: 'nmit',
+      createdAt: Timestamp.now(),
+    });
+    await setDoc(doc(db, 'events', 'ev-rvce'), {
+      title: 'Hackathon', createdBy: RVCE, collegeId: 'rvce',
+      createdAt: Timestamp.now(),
+    });
+    await setDoc(doc(db, 'events', 'ev-legacy'), {
+      title: 'Old Event', createdBy: NMIT, createdAt: Timestamp.now(),
+    });
   });
 
   const nmit = testEnv.authenticatedContext(NMIT, { email: 's@nmit.ac.in' });
@@ -177,6 +188,30 @@ async function main() {
     assertSucceeds(getDoc(doc(n, 'posts', PN, 'comments', 'c1'))));
   await test('23 cross-college cannot read comments', () =>
     assertFails(getDoc(doc(r, 'posts', PN, 'comments', 'c1'))));
+
+  console.log('\n== Events (college-scoped) ==');
+
+  const evRef = (db, id) => doc(db, 'events', id);
+  await test('e1 same-college event read allowed', () =>
+    assertSucceeds(getDoc(evRef(n, 'ev-nmit'))));
+  await test('e2 cross-college event read denied', () =>
+    assertFails(getDoc(evRef(n, 'ev-rvce'))));
+  await test('e3 legacy unstamped event read denied', () =>
+    assertFails(getDoc(evRef(n, 'ev-legacy'))));
+  await test('e4 create own-college event allowed', () =>
+    assertSucceeds(addDoc(collection(n, 'events'), {
+      title: 'New', createdBy: NMIT, collegeId: 'nmit',
+      createdAt: Timestamp.now(),
+    })));
+  await test('e5 create event forged collegeId denied', () =>
+    assertFails(addDoc(collection(n, 'events'), {
+      title: 'Forged', createdBy: NMIT, collegeId: 'rvce',
+      createdAt: Timestamp.now(),
+    })));
+  await test('e6 owner edits own event allowed', () =>
+    assertSucceeds(updateDoc(evRef(n, 'ev-nmit'), { title: 'Tech Fest 2' })));
+  await test('e7 peer cannot edit adjacent college event', () =>
+    assertFails(updateDoc(evRef(r, 'ev-nmit'), { title: 'Hijacked' })));
 
   // Delete runs LAST: it removes the seeded post-nmit, and every rule on its
   // likes/comments subcollections reads the parent via postCollege(postId), so

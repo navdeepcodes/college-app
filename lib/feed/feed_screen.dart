@@ -5,7 +5,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../services/storage_service.dart';
 import '../notifications/notifications_screen.dart';
 import '../chat/chats_list_screen.dart';
-import '../moments/moments_screen.dart';
 import '../profile/profile_screen.dart';
 import '../feed/comments_screen.dart';
 import 'post_user_header.dart';
@@ -20,7 +19,6 @@ class FeedScreen extends StatefulWidget {
 }
 
 class _FeedScreenState extends State<FeedScreen> {
-  int _selectedTab = 0;
   late final String _uid;
 
   late final StorageService _storage;
@@ -44,16 +42,15 @@ class _FeedScreenState extends State<FeedScreen> {
           style: TextStyle(fontWeight: FontWeight.w700),
         ),
         actions: [
-          if (_selectedTab == 0)
-            _TopPillIcon(
-              icon: Icons.add,
-              onTap: () => showModalBottomSheet(
-                context: context,
-                isScrollControlled: true,
-                backgroundColor: Colors.transparent,
-                builder: (_) => const AddCreateSelectorSheet(),
-              ),
+          _TopPillIcon(
+            icon: Icons.add,
+            onTap: () => showModalBottomSheet(
+              context: context,
+              isScrollControlled: true,
+              backgroundColor: Colors.transparent,
+              builder: (_) => const AddCreateSelectorSheet(),
             ),
+          ),
           _TopPillIcon(
             icon: Icons.chat_bubble_outline,
             onTap: () => Navigator.push(
@@ -73,23 +70,11 @@ class _FeedScreenState extends State<FeedScreen> {
           const SizedBox(width: 8),
         ],
       ),
-      body: Column(
-        children: [
-          const SizedBox(height: 10),
-          _FeedToggle(
-            selectedIndex: _selectedTab,
-            onChanged: (i) => setState(() => _selectedTab = i),
-          ),
-          const SizedBox(height: 12),
-          Expanded(
-            child: _selectedTab == 0
-                ? _MergedFeed(
-              uid: _uid,
-              storage: _storage,
-            )
-                : const MomentsScreen(),
-          ),
-        ],
+      body: Expanded(
+        child: _MergedFeed(
+          uid: _uid,
+          storage: _storage,
+        ),
       ),
     );
   }
@@ -313,79 +298,6 @@ class _TopPillIcon extends StatelessWidget {
             borderRadius: BorderRadius.circular(14),
           ),
           child: Icon(icon, size: 20),
-        ),
-      ),
-    );
-  }
-}
-
-class _FeedToggle extends StatelessWidget {
-  final int selectedIndex;
-  final ValueChanged<int> onChanged;
-
-  const _FeedToggle({
-    required this.selectedIndex,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16),
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(24),
-      ),
-      child: Row(
-        children: [
-          _ToggleButton(
-            label: 'Feed',
-            selected: selectedIndex == 0,
-            onTap: () => onChanged(0),
-          ),
-          _ToggleButton(
-            label: 'Moments',
-            selected: selectedIndex == 1,
-            onTap: () => onChanged(1),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ToggleButton extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _ToggleButton({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: GestureDetector(
-        onTap: onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          padding: const EdgeInsets.symmetric(vertical: 10),
-          decoration: BoxDecoration(
-            color: selected ? Colors.deepPurple : Colors.transparent,
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Text(
-            label,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontWeight: FontWeight.w600,
-              color: selected ? Colors.white : Colors.white70,
-            ),
-          ),
         ),
       ),
     );

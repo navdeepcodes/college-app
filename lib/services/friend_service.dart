@@ -41,18 +41,12 @@ class FriendService {
       'createdAt': FieldValue.serverTimestamp(),
     });
 
-    // 2️⃣ Update counters
-    batch.update(
-      _firestore.collection('users').doc(fromUid),
-      {'friendsCount': FieldValue.increment(1)},
-    );
+    // friendsCount for BOTH members is bumped by the friendCreated Cloud
+    // Function (functions/index.js) using the admin SDK. A client can only
+    // write its OWN users doc, so incrementing the peer's counter here would
+    // fail the owner-only users rule (firestore.rules users block).
 
-    batch.update(
-      _firestore.collection('users').doc(toUid),
-      {'friendsCount': FieldValue.increment(1)},
-    );
-
-    // 3️⃣ Delete request
+    // 2️⃣ Delete request
     batch.delete(
       _firestore.collection('friend_requests').doc(requestId),
     );

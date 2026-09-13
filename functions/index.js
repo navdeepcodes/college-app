@@ -38,3 +38,26 @@ exports.cleanupExpiredAnonMessages = functions.pubsub
     console.log(`🔥 Deleted ${deleteCount} expired anon messages`);
     return null;
   });
+
+// ⭐ Bumps friendsCount on both members when a friendship is created.
+// The client accept batch cannot write a peer's users doc (owner-only rule),
+// so the authoritative counter update happens server-side.
+exports.friendCreated = functions.firestore
+  .document("friends/{friendId}")
+  .onCreate(async (snap) => {
+    const data = snap.data() || {};
+    const members = data.members || [];
+    const inc = admin.firestore.FieldValue.increment(1);
+
+    const batch = db.batch();
+    for (const uid of members) {
+      if (typeof uid !== "string" || uid.length === 0) continue;
+      batch.update(db.collection("users").doc(uid), {
+        friendsCount: inc,
+      });
+    }
+
+    await batch.commit();
+    console.log(`⭐ friends++ for [${members.join(", ")}]`);
+    return null;
+  });

@@ -64,6 +64,7 @@ function clubRequest(overrides = {}) {
       phone: '9876543210',
       usn: '1NM21CS001',
       status: 'pending',
+      idCardUrl: 'https://x.supabase.co/club_id_cards/x.jpg',
       createdAt: serverTimestamp(),
     },
     overrides,
@@ -113,6 +114,13 @@ async function main() {
     await setDoc(doc(db, 'club_requests', 'req-1'), clubRequest());
     await setDoc(doc(db, 'club_requests', 'req-2'), clubRequest({ clubName: 'Robotics Club' }));
     await setDoc(doc(db, 'notifications', 'ntf-1'), notification());
+    // Pending JOIN requests: jr-1 from OTHER, jr-2 from REQUESTER (both to club-1).
+    await setDoc(doc(db, 'club_join_requests', 'jr-1'), {
+      clubId: 'club-1', userId: OTHER, status: 'pending',
+    });
+    await setDoc(doc(db, 'club_join_requests', 'jr-2'), {
+      clubId: 'club-1', userId: REQUESTER, status: 'pending',
+    });
   });
 
   const requester = testEnv.authenticatedContext(REQUESTER, {
@@ -178,6 +186,8 @@ async function main() {
     assertFails(deleteDoc(doc(r, 'club_requests', 'req-1'))));
   await test('r12 admin can delete request', () =>
     assertSucceeds(deleteDoc(doc(a, 'club_requests', 'req-1'))));
+  await test('r13 request without ID-card upload denied', () =>
+    assertFails(addDoc(collection(r, 'club_requests'), clubRequest({ clubName: 'Art Club', idCardUrl: '' }))));
 
   console.log('\n== Clubs.create (admin bootstrap) ==');
 
@@ -213,6 +223,42 @@ async function main() {
     assertFails(member(o)));
   await test('m3 unauth cannot read club members', () =>
     assertFails(getDoc(doc(n, 'club_members', 'club-1_requester'))));
+  // m1 ran first and bootstrapped club-1_requester, so reads can target it.
+  await test('m4 user reads their own membership allowed', () =>
+    assertSucceeds(getDoc(doc(r, 'club_members', 'club-1_requester'))));
+  await test('m5 outsider cannot read membership', () =>
+    assertFails(getDoc(doc(o, 'club_members', 'club-1_requester'))));
+  await test('m6 platform admin reads any membership allowed', () =>
+    assertSucceeds(getDoc(doc(a, 'club_members', 'club-1_requester'))));
+
+  console.log('\n== Club join requests ==');
+
+  const jr = (db, id) => doc(db, 'club_join_requests', id);
+  await test('j1 applicant creates own pending join request allowed', () =>
+    assertSucceeds(addDoc(collection(o, 'club_join_requests'), {
+      clubId: 'club-1', userId: OTHER, status: 'pending',
+      createdAt: serverTimestamp(),
+    })));
+  await test('j2 creating join request for another denied', () =>
+    assertFails(addDoc(collection(o, 'club_join_requests'), {
+      clubId: 'club-1', userId: REQUESTER, status: 'pending',
+    })));
+  await test('j3 non-pending join request denied', () =>
+    assertFails(addDoc(collection(o, 'club_join_requests'), {
+      clubId: 'club-1', userId: OTHER, status: 'active',
+    })));
+  await test('j4 applicant reads own join request allowed', () =>
+    assertSucceeds(getDoc(jr(o, 'jr-1'))));
+  await test('j5 club admin reads pending join request allowed', () =>
+    assertSucceeds(getDoc(jr(r, 'jr-1'))));
+  await test('j6 outsider cannot read someone elses join request', () =>
+    assertFails(getDoc(jr(o, 'jr-2'))));
+  await test('j7 applicant cannot approve own request', () =>
+    assertFails(updateDoc(jr(o, 'jr-1'), { status: 'active' })));
+  await test('j8 club admin approves join request allowed', () =>
+    assertSucceeds(updateDoc(jr(r, 'jr-1'), { status: 'active' })));
+  await test('j9 club admin clears join request (approve flow) allowed', () =>
+    assertSucceeds(deleteDoc(jr(r, 'jr-2'))));
 
   await testEnv.cleanup();
 

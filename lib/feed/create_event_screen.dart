@@ -6,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../services/storage_service.dart';
+import '../auth/services/college_detector.dart';
 
 class CreateEventScreen extends StatefulWidget {
   const CreateEventScreen({super.key});
@@ -80,6 +81,26 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
 
       final eventLink = '$_websiteBase/${eventRef.id}';
 
+      // College identity for the scoped events feed (same model as campus
+      // posts): the event carries the creator's canonical collegeId and the
+      // Firestore rule requires it to match users/{uid}.collegeId on write and
+      // gates reads on it.
+      final userSnap = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .get();
+      final collegeId = canonicalCollegeId(userSnap.data());
+      if (collegeId.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Finish your profile to create an event'),
+            ),
+          );
+        }
+        return;
+      }
+
       final List<String> mediaPaths = [];
       for (final file in _mediaFiles) {
         final path = await _storageService.uploadEventMedia(
@@ -93,6 +114,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
         'title': _titleController.text.trim(),
         'description': _descController.text.trim(),
         'createdBy': uid,
+        'collegeId': collegeId,
         'mediaPaths': mediaPaths,
         'eventLink': eventLink,
         'startDate': Timestamp.fromDate(_startDate!),
