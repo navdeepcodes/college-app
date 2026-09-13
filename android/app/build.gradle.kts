@@ -27,7 +27,13 @@ if (hasReleaseKeystore) {
 
 android {
     namespace = "com.navdeep.collegeapp.college_app"
-    compileSdk = 34
+    // Several plugins (app_links, camera_android_camerax, google_sign_in_android,
+    // image_picker_android, shared_preferences_android, url_launcher_android,
+    // video_player_android, flutter_plugin_android_lifecycle) require compiling
+    // against SDK 36 — Gradle emitted an explicit warning naming each one.
+    // compileSdk is backward-compatible with lower minSdk/targetSdk, so this
+    // is a safe bump, not a behavior change.
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.navdeep.collegeapp.college_app"
@@ -61,6 +67,13 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
+            // The Flutter Gradle plugin's own defaults set isShrinkResources
+            // = true unconditionally for release (FlutterPlugin.kt); AGP
+            // rejects shrinkResources=true with minifyEnabled=false. This
+            // project deliberately keeps minification off for now (Phase
+            // 12/13 — no code-shrinking decision), so shrinkResources must
+            // explicitly follow it rather than inherit Flutter's default.
+            isShrinkResources = false
             signingConfig = if (hasReleaseKeystore) {
                 signingConfigs.getByName("release")
             } else {
