@@ -5,6 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../auth/screens/welcome_screen.dart';
 import '../auth/screens/profile_setup_page.dart';
 import '../navigation/bottom_nav_shell.dart';
+import '../auth/services/college_detector.dart';
 
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
@@ -105,12 +106,18 @@ class _UserBootstrapState extends State<_UserBootstrap> {
       final snap = await ref.get();
 
       if (!snap.exists) {
+        // Bootstrap doc must satisfy the users.create rule: collegeId must
+        // equal collegeIdFromEmail(email). Profile flows then refine the rest
+        // (name/photo/college label). anonId is minted here ONCE so anon chat
+        // works for every user, not just signup-screen users.
         await ref.set({
           'uid': widget.user.uid,
           'email': widget.user.email,
+          'collegeId': collegeIdForEmail(widget.user.email),
+          'anonId': anonDisplayId(),
           'profileCompleted': false,
           'createdAt': FieldValue.serverTimestamp(),
-        });
+        }, SetOptions(merge: true));
 
         if (!mounted) return;
         setState(() => _profileCompleted = false);

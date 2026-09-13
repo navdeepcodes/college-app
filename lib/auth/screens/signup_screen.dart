@@ -85,7 +85,13 @@ class _SignupScreenState extends State<SignupScreen> {
           'uid': user.uid,
           'email': email,
           'college': _college,
-          'collegeId': collegeIdForEmail(email, fallbackCollege: _college),
+          // Must match the rules' users.create check (collegeIdForEmail ==
+          // collegeIdFromEmail): a display-name fallback slug would be denied
+          // for non-sanctioned domains, so derive from the email only; the
+          // sanctioned domains resolve to their canonical slug, anything else
+          // to 'unknown' (the same value users.create demands).
+          'collegeId': collegeIdForEmail(email),
+          'anonId': anonDisplayId(),
           'profileCompleted': false,
           'createdAt': FieldValue.serverTimestamp(),
         },

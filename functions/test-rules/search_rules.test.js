@@ -4,11 +4,14 @@
  *
  * Covers: same-college get/query allowed; cross-college and unfiltered
  * queries denied; own-doc and admin reads allowed; legacy unstamped
- * profiles hidden (strictest-first).
+ * profiles hidden (strictest-first). Plus the anonId immutability contract on
+ * update: first mint allowed (heal), mutation of an existing value denied.
+ * And the users.create (signup) contract: collegeId must equal the value the
+ * rules derive from the verified email (collegeIdFromEmail).
  */
 const { initializeTestEnvironment, assertFails, assertSucceeds } =
   require('@firebase/rules-unit-testing');
-const { doc, setDoc, getDoc, collection, getDocs, query, where } =
+const { doc, setDoc, updateDoc, getDoc, collection, getDocs, query, where } =
   require('@firebase/firestore');
 
 const PROJECT_ID = process.env.GCLOUD_PROJECT || 'demo-truekinn';
@@ -38,7 +41,7 @@ function test(name, fn) {
     })
     .catch((e) => {
       failCount++;
-      console.log(`  ✘ ${name}\n      ${String(e.message || e).split('\n')[0]}`);
+      console.log(`  ✘ ${name}\n      ${String(e.message || e)}`);
     });
 }
 
@@ -57,20 +60,23 @@ async function main() {
 
   await testEnv.withSecurityRulesDisabled(async (ctx) => {
     const db = ctx.firestore();
-    await setDoc(doc(db, 'users', NMIT), userDoc(NMIT, 'nmit'));
-    await setDoc(doc(db, 'users', RVCE), userDoc(RVCE, 'rvce'));
+    // Emails must be CONSISTENT with their collegeId: the rules derive the
+    // sanctioned slug from the email, and an update to an inconsistent doc
+    // (collegeId ≠ collegeIdFromEmail(email)) is correctly denied.
+    await setDoc(doc(db, 'users', NMIT), userDoc(NMIT, 'nmit', { email: 't@nmit.ac.in' }));
+    await setDoc(doc(db, 'users', RVCE), userDoc(RVCE, 'rvce', { email: 't@rvce.edu.in' }));
     // Legacy profile: predates collegeId stamping — must be hidden.
     await setDoc(doc(db, 'users', LEGACY), {
       uid: LEGACY,
       name: 'Old Profile',
       email: 't@nmit.ac.in',
     });
-    await setDoc(doc(db, 'users', ADMIN), userDoc(ADMIN, 'rvce'));
+    await setDoc(doc(db, 'users', ADMIN), userDoc(ADMIN, 'rvce', { email: 't@rvce.edu.in' }));
   });
 
-  const nmit = testEnv.authenticatedContext(NMIT, { email: 't@nmit.college' });
-  const rvce = testEnv.authenticatedContext(RVCE, { email: 't@rvce.college' });
-  const admin = testEnv.authenticatedContext(ADMIN, { email: 't@rvce.college' });
+  const nmit = testEnv.authenticatedContext(NMIT, { email: 't@nmit.ac.in' });
+  const rvce = testEnv.authenticatedContext(RVCE, { email: 't@rvce.edu.in' });
+  const admin = testEnv.authenticatedContext(ADMIN, { email: 't@rvce.edu.in' });
   const anon = testEnv.unauthenticatedContext();
 
   const n = nmit.firestore();
@@ -107,6 +113,62 @@ async function main() {
   await test('9 querying another college denied', () =>
     assertFails(
       getDocs(query(collection(n, 'users'), where('collegeId', '==', 'rvce')))));
+
+  console.log('\n== Profile updates (anonId immutability) ==');
+
+  // NMIT's seeded doc has no anonId yet → the first mint is the lawful heal.
+  await test('10 first anonId mint on null doc allowed (heal)', () =>
+    assertSucceeds(
+      updateDoc(doc(n, 'users', NMIT), { anonId: 'healme12' })));
+  // Once set, the value is locked: any change is a re-mint → denied.
+  await test('11 mutating an existing anonId denied', () =>
+    assertFails(
+      updateDoc(doc(n, 'users', NMIT), { anonId: 'swapped99' })));
+  await test('12 unrelated profile field update allowed', () =>
+    assertSucceeds(
+      updateDoc(doc(n, 'users', NMIT), { bio: 'updated' })));
+  await test('13 peer cannot update another users doc', () =>
+    assertFails(
+      updateDoc(doc(r, 'users', NMIT), { bio: 'hijack' })));
+
+  console.log('\n== Signup (users.create) ==');
+
+  const signup = (email, uid) =>
+    testEnv.authenticatedContext(uid, { email }).firestore();
+  // Sanctioned domain: the client derives collegeId nmit AND the rules agree.
+  await test('s1 signup with nmit email -> collegeId nmit allowed', async () => {
+    const s = signup('new@nmit.ac.in', 'uid-nmit-new');
+    await assertSucceeds(
+      setDoc(doc(s, 'users', 'uid-nmit-new'), {
+        uid: 'uid-nmit-new', email: 'new@nmit.ac.in',
+        collegeId: 'nmit', profileCompleted: false,
+      }));
+  });
+  // A sanctioned email can only ever claim its own domain's slug.
+  await test('s2 nmit email claiming rvce collegeId denied', async () => {
+    const s = signup('new@nmit.ac.in', 'uid-nmit-forge');
+    await assertFails(
+      setDoc(doc(s, 'users', 'uid-nmit-forge'), {
+        uid: 'uid-nmit-forge', email: 'new@nmit.ac.in',
+        collegeId: 'rvce', profileCompleted: false,
+      }));
+  });
+  await test('s3 unsanctioned email -> collegeId unknown allowed', async () => {
+    const s = signup('x@somedomain.edu', 'uid-other');
+    await assertSucceeds(
+      setDoc(doc(s, 'users', 'uid-other'), {
+        uid: 'uid-other', email: 'x@somedomain.edu',
+        collegeId: 'unknown', profileCompleted: false,
+      }));
+  });
+  await test('s4 unsanctioned email forged nmit collegeId denied', async () => {
+    const s = signup('x@somedomain.edu', 'uid-other-forge');
+    await assertFails(
+      setDoc(doc(s, 'users', 'uid-other-forge'), {
+        uid: 'uid-other-forge', email: 'x@somedomain.edu',
+        collegeId: 'nmit', profileCompleted: false,
+      }));
+  });
 
   await testEnv.cleanup();
   console.log(`\n${passCount} passed, ${failCount} failed`);

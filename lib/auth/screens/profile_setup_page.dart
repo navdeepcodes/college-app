@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -9,12 +8,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../navigation/bottom_nav_shell.dart';
 import '../../auth/services/college_detector.dart';
-
-String generateAnonId() {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  final rand = Random.secure();
-  return 'ANON-${List.generate(4, (_) => chars[rand.nextInt(chars.length)]).join()}';
-}
 
 class ProfileSetupPage extends StatefulWidget {
   const ProfileSetupPage({super.key});
@@ -127,9 +120,12 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
       final userRef = _firestore.collection('users').doc(user.uid);
 
       final snap = await userRef.get();
+      // Heal path for pre-bootstrap docs: mint anonId once if it's missing.
+      // (New users get it stamped at user-doc creation; the rules permit the
+      // first mint and lock the value afterwards.)
       if (snap.data()?['anonId'] == null) {
         await userRef.set(
-          {'anonId': generateAnonId()},
+          {'anonId': anonDisplayId()},
           SetOptions(merge: true),
         );
       }

@@ -1,3 +1,5 @@
+import 'dart:math';
+
 /// College identity contract.
 ///
 /// Canonical field on a user document: **`collegeId`** — a stable, lower-case
@@ -49,6 +51,16 @@ String canonicalCollegeId(Map<String, dynamic>? doc) {
   final legacy = doc['college'];
   if (legacy is String && legacy.isNotEmpty) return legacy;
   return '';
+}
+
+/// Anonymous handle minted ONCE per user at document creation. The anon chat
+/// seeds every message with this value and its rule ties it back to the users
+/// doc (`messages.anonId == users/{uid}.anonId`), so it must be unguessable and
+/// set before first use — anything that creates a user doc stamps it.
+String anonDisplayId() {
+  const alphabet = 'abcdefghjkmnpqrstuvwxyz23456789'; // no 0/O/1/l ambiguity
+  final r = Random.secure();
+  return List.generate(8, (_) => alphabet[r.nextInt(alphabet.length)]).join();
 }
 
 /// College id to persist when writing a user document: derived from the email

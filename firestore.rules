@@ -25,11 +25,15 @@ rules_version = '2';
       // for the four sanctioned college domains; 'unknown' otherwise. Used to
       // (a) keep users.collegeId consistent with the verified email and
       // (b) bind anon-chat rooms to the caller's own college.
+      // NOTE: rules strings have NO endsWith() — only RE2 matches() — so the
+      // domain check is expressed as an $-anchored full match (identical to
+      // String.endsWith). A domain merely *containing* 'nmit.ac.in' (e.g.
+      // 'evil-nmit.ac.in.co') correctly does not match.
       function collegeIdFromEmail(email) {
-        return (email != null && email.endsWith('nmit.ac.in')) ? 'nmit'
-          : (email != null && email.endsWith('rvce.edu.in')) ? 'rvce'
-          : (email != null && email.endsWith('bmsce.ac.in')) ? 'bms'
-          : (email != null && email.endsWith('pes.edu')) ? 'pes'
+        return (email is string && email.matches('.*nmit\\.ac\\.in$')) ? 'nmit'
+          : (email is string && email.matches('.*rvce\\.edu\\.in$')) ? 'rvce'
+          : (email is string && email.matches('.*bmsce\\.ac\\.in$')) ? 'bms'
+          : (email is string && email.matches('.*pes\\.edu$')) ? 'pes'
           : 'unknown';
       }
 
@@ -78,7 +82,17 @@ function isOwnCollegeRoom(chatId) {
           && isOwner(userId)
           // collegeId is immutable: if present, it must equal the email-derived value
           && (!request.resource.data.keys().hasAny(['collegeId']) ||
-              request.resource.data.collegeId == collegeIdFromEmail(resource.data.email));
+              request.resource.data.collegeId == collegeIdFromEmail(resource.data.email))
+          // anonId is minted once and never changes: a re-mint would fragment
+          // a user's handle across a room's history (messages keep the anonId
+          // they were sent with). The first mint is permitted only while the
+          // doc has none yet (heals pre-bootstrap legacy docs); once set, the
+          // value is locked. Absence is tested with `in` — reading a missing
+          // property (resource.data.anonId) throws an evaluation error, it
+          // does not yield null.
+          && (!request.resource.data.keys().hasAny(['anonId']) ||
+              !('anonId' in resource.data) ||
+              request.resource.data.anonId == resource.data.anonId);
 
         allow delete: if false;
       }
