@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+import '../moderation/text_filter.dart';
+
 class ClubChatScreen extends StatefulWidget {
   final String clubId;
   final String clubName;
@@ -53,6 +55,17 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
     final text = _controller.text.trim();
     if (text.isEmpty || _sending || _uid == null) return;
 
+    // Moderation: block messages the content filter rejects (anon-chat policy).
+    final filterResult = TextFilter.filter(text);
+    if (!filterResult.isAllowed) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('⚠️ Message blocked by filter')),
+        );
+      }
+      return;
+    }
+
     setState(() => _sending = true);
     _controller.clear();
 
@@ -62,7 +75,7 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
         .collection('messages')
         .add({
       'userId': _uid,
-      'text': text,
+      'text': filterResult.cleanedText,
       'createdAt': FieldValue.serverTimestamp(),
     });
 

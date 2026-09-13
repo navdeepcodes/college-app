@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+import '../moderation/text_filter.dart';
+
 class CommentsScreen extends StatefulWidget {
   final String postId;
 
@@ -19,6 +21,17 @@ class _CommentsScreenState extends State<CommentsScreen> {
     final text = _controller.text.trim();
     if (text.isEmpty || _sending) return;
 
+    // Moderation: block comments the content filter rejects (anon-chat policy).
+    final filterResult = TextFilter.filter(text);
+    if (!filterResult.isAllowed) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('⚠️ Comment blocked by filter')),
+        );
+      }
+      return;
+    }
+
     setState(() => _sending = true);
 
     try {
@@ -28,7 +41,7 @@ class _CommentsScreenState extends State<CommentsScreen> {
 
       await postRef.collection('comments').add({
         'userId': uid,
-        'text': text,
+        'text': filterResult.cleanedText,
         'createdAt': FieldValue.serverTimestamp(),
       });
 

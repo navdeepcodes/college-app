@@ -7,6 +7,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../services/storage_service.dart';
 import '../auth/services/college_detector.dart';
+import '../moderation/text_filter.dart';
 
 class AddPostScreen extends StatefulWidget {
   const AddPostScreen({super.key});
@@ -35,6 +36,17 @@ class _AddPostScreenState extends State<AddPostScreen> {
     if (_image == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Select an image')),
+      );
+      return;
+    }
+
+    // Moderation: block captions the content filter rejects (same policy as
+    // the anonymous chat) BEFORE any upload or Firestore write.
+    final caption = _captionController.text.trim();
+    final captionFilter = TextFilter.filter(caption);
+    if (!captionFilter.isAllowed) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('⚠️ Caption blocked by filter')),
       );
       return;
     }
@@ -74,7 +86,7 @@ class _AddPostScreenState extends State<AddPostScreen> {
       await postRef.set({
         'userId': uid,
         'collegeId': collegeId,
-        'caption': _captionController.text.trim(),
+        'caption': captionFilter.cleanedText,
         'mediaPath': mediaPath,
         'createdAt': FieldValue.serverTimestamp(),
         'likesCount': 0,

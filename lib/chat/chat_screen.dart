@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+import '../moderation/text_filter.dart';
+
 class ChatScreen extends StatefulWidget {
   final String peerUid;
 
@@ -82,6 +84,17 @@ class _ChatScreenState extends State<ChatScreen> {
     final text = _controller.text.trim();
     if (text.isEmpty) return;
 
+    // Moderation: block messages the content filter rejects (anon-chat policy).
+    final filterResult = TextFilter.filter(text);
+    if (!filterResult.isAllowed) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('⚠️ Message blocked by filter')),
+        );
+      }
+      return;
+    }
+
     _controller.clear();
 
     final ref = FirebaseFirestore.instance.collection('chats').doc(_chatId);
@@ -89,13 +102,13 @@ class _ChatScreenState extends State<ChatScreen> {
     await ref.collection('messages').add({
       'fromUid': _currentUid,
       'toUid': widget.peerUid,
-      'text': text,
+      'text': filterResult.cleanedText,
       'status': 'sent',
       'createdAt': FieldValue.serverTimestamp(),
     });
 
     await ref.update({
-      'lastMessage': text,
+      'lastMessage': filterResult.cleanedText,
       'lastMessageAt': FieldValue.serverTimestamp(),
     });
   }
