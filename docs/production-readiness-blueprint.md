@@ -295,4 +295,4 @@ Lower-priority items that don't block any launch tier but are worth tracking:
 
 ---
 
-*This blueprint will be updated as the remaining parts of the overnight mission (live multi-account walkthrough, failure injection, data-integrity audit, performance audit) proceed. See `docs/overnight-production-hardening-report.md` for the full narrative report and final readiness rating once complete.*
+*This blueprint reflects the completed overnight mission pass: the rules sweep (§10) and the chained multi-account walkthrough (referenced throughout) are done and evidenced; failure-injection, data-integrity, and performance were covered as targeted spot-checks rather than exhaustive live-device sweeps, for reasons explained in `docs/overnight-production-hardening-report.md` §5. See that report for the full narrative, methodology, judgment calls made autonomously, and the final conservative readiness rating: **INTERNAL TEST READY**.*
