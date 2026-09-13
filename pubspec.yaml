@@ -27,13 +27,6 @@ dependencies:
   # ================= MEDIA / STORAGE =================
   image_picker: ^1.1.2
 
-  # ================= MOMENTS (SNAPCHAT STYLE) =================
-  camera: ^0.11.0+2
-
-  video_player: ^2.8.1
-  path_provider: ^2.1.4
-  firebase_messaging: ^15.0.0
-
 
 
 
