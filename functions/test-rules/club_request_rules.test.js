@@ -242,6 +242,22 @@ async function main() {
   await test('m6 platform admin reads any membership allowed', () =>
     assertSucceeds(getDoc(doc(a, 'club_members', 'club-1_requester'))));
 
+  // Regression (overnight sweep): club_profile_screen.dart's _RoleActions
+  // widget live-listens on club_members/{clubId}_{myUid} for every club it
+  // renders, to decide whether to show admin/member/join UI — and for a
+  // club the caller hasn't joined (the common case), that doc doesn't
+  // exist. The old rule's first clause unconditionally dereferenced
+  // resource.data, which throws on a nonexistent doc instead of evaluating
+  // false, so every non-member's listener died on a permission error
+  // rather than cleanly observing "doesn't exist" (same bug class as the
+  // users/chats/friends fixes). member id format is always
+  // `{clubId}_{userId}` (see admin_club_requests_screen.dart:106,
+  // club_join_requests_screen.dart:210).
+  await test('m7 own NONEXISTENT membership row read allowed (not yet joined)', () =>
+    assertSucceeds(getDoc(doc(o, 'club_members', 'club-1_other-uid'))));
+  await test('m8 someone elses NONEXISTENT membership row still denied', () =>
+    assertFails(getDoc(doc(o, 'club_members', 'club-1_some-other-uid'))));
+
   console.log('\n== Club join requests ==');
 
   const jr = (db, id) => doc(db, 'club_join_requests', id);

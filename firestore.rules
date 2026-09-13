@@ -246,11 +246,35 @@ function isOwnCollegeRoom(chatId) {
         // (the "Your clubs" query is `where userId == uid`), a club's admins
         // may read that club's rows, and the platform admin may read all.
         // Previously any signed-in user could enumerate everyone's clubs.
+        //
+        // memberId is always `{clubId}_{userId}` (admin_club_requests_screen
+        // bootstraps it and club_join_requests_screen approves into it with
+        // exactly that id). club_profile_screen.dart's _RoleActions widget
+        // live-listens on club_members/{clubId}_{myUid} for EVERY club it
+        // renders, to decide whether to show the admin dashboard, the
+        // "Open Club Chat" button, or the Join button — and for the (most
+        // common) case of a club the caller hasn't joined, that doc doesn't
+        // exist. The old first clause, `resource.data.userId == ...`,
+        // unconditionally dereferenced resource.data; on a nonexistent doc
+        // resource is null and that throws permission-denied instead of
+        // evaluating false, so every non-member's listener died on a
+        // permission error instead of cleanly observing "doesn't exist" —
+        // same bug class as the users/chats/friends fixes above. The
+        // Every clause that touches `resource.data` is now guarded by
+        // `resource != null`, so a nonexistent doc falls through to the
+        // memberId-suffix clause instead of throwing on the first
+        // dereference; that clause grants exactly "read your own memberId",
+        // existing or not, which is not a privacy loosening (there is
+        // nothing to leak in a doc that isn't there) and leaves the
+        // existing-doc behavior (the resource.data.userId check) byte-for-
+        // byte identical to before.
         allow read: if isSignedIn()
           && (
-            resource.data.userId == request.auth.uid
-            || get(/databases/$(database)/documents/clubs/$(resource.data.clubId))
-                .data.admins.hasAny([request.auth.uid])
+            (resource != null && resource.data.userId == request.auth.uid)
+            || (resource == null && memberId.matches('.*_' + request.auth.uid + '$'))
+            || (resource != null &&
+                get(/databases/$(database)/documents/clubs/$(resource.data.clubId))
+                    .data.admins.hasAny([request.auth.uid]))
             || isAdmin()
           );
 
