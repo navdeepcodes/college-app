@@ -65,10 +65,10 @@ class _EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
+    return const Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
-        children: const [
+        children: [
           Icon(Icons.inbox_outlined, size: 48, color: Colors.white24),
           SizedBox(height: 14),
           Text(
@@ -217,6 +217,7 @@ class _RequestCard extends StatelessWidget {
 
     await batch.commit();
 
+    if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Member approved')),
     );
@@ -232,6 +233,7 @@ class _RequestCard extends StatelessWidget {
         .doc(requestId)
         .delete();
 
+    if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Request rejected')),
     );

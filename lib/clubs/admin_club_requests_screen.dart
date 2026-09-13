@@ -145,6 +145,7 @@ class AdminClubRequestsScreen extends StatelessWidget {
     // 3️⃣ UPDATE REQUEST STATUS
     await requestDoc.reference.update({'status': 'approved'});
 
+    if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Club approved successfully')),
     );

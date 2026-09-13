@@ -10,7 +10,7 @@ import 'core/theme.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  await Supabase.initialize(url: supabaseUrl, anonKey: supabaseAnonKey);
+  await Supabase.initialize(url: supabaseUrl, publishableKey: supabaseAnonKey);
   runApp(const TrueKinnApp());
 }
 

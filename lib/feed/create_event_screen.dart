@@ -197,9 +197,9 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
               ),
             ),
           const SizedBox(height: 24),
-          Text(
+          const Text(
             'Registration & payment handled on:\n$_websiteBase/{eventId}',
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 12,
               color: Colors.white54,
             ),

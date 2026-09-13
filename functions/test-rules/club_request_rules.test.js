@@ -34,7 +34,7 @@ if (process.env.FIRESTORE_EMULATOR_HOST) {
   port = Number(p);
 }
 
-// Mirrors ADMIN_UID in lib/core/admin.dart.
+// Mirrors adminUid in lib/core/admin.dart.
 const ADMIN = 'OImOQirOL7eQNftKASo4FTrF6XA3';
 const REQUESTER = 'requester-uid';
 const OTHER = 'other-uid';

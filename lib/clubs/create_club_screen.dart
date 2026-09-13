@@ -84,7 +84,7 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
         // Recipient is the platform admin: notifications are queried by toUid
         // (notifications_screen.dart), and the Firestore rule rejects any
         // notification without a recipient.
-        'toUid': ADMIN_UID,
+        'toUid': adminUid,
         'createdAt': FieldValue.serverTimestamp(),
         'read': false,
       });

@@ -181,7 +181,7 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
                 children: [
                   CircleAvatar(
                     radius: 58,
-                    backgroundColor: Colors.white.withOpacity(0.08),
+                    backgroundColor: Colors.white.withValues(alpha: 0.08),
                     backgroundImage:
                     _image != null ? FileImage(_image!) : null,
                     child: _image == null
@@ -269,7 +269,7 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
       ValueChanged<String?> onChanged,
       ) {
     return DropdownButtonFormField<String>(
-      value: value,
+      initialValue: value,
       isExpanded: true,
       items:
       items.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),

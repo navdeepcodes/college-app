@@ -29,6 +29,9 @@ class _FriendButtonState extends State<FriendButton> {
       onPressed: _loading
           ? null
           : () async {
+        // Capture the messenger before the await so no BuildContext is used
+        // across the async gap (use_build_context_synchronously).
+        final messenger = ScaffoldMessenger.of(context);
         setState(() => _loading = true);
 
         await FriendService.sendRequest(
@@ -38,7 +41,7 @@ class _FriendButtonState extends State<FriendButton> {
 
         if (!mounted) return;
 
-        ScaffoldMessenger.of(context).showSnackBar(
+        messenger.showSnackBar(
           const SnackBar(content: Text('Friend request sent')),
         );
 

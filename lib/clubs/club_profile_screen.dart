@@ -134,7 +134,7 @@ class _HeroHeader extends StatelessWidget {
             padding:
             const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
             decoration: BoxDecoration(
-              color: Colors.black.withOpacity(0.35),
+              color: Colors.black.withValues(alpha: 0.35),
               borderRadius: BorderRadius.circular(18),
             ),
             child: Text(
@@ -189,6 +189,7 @@ class _RoleActions extends StatelessWidget {
                 'createdAt': FieldValue.serverTimestamp(),
               });
 
+              if (!context.mounted) return;
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text('Join request sent')),
               );
@@ -281,14 +282,14 @@ class _AdminDashboardCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(22),
           gradient: LinearGradient(
             colors: [
-              Colors.purple.withOpacity(0.35),
-              Colors.deepPurple.withOpacity(0.2),
+              Colors.purple.withValues(alpha: 0.35),
+              Colors.deepPurple.withValues(alpha: 0.2),
             ],
           ),
           border: Border.all(color: Colors.purpleAccent),
         ),
-        child: Row(
-          children: const [
+        child: const Row(
+          children: [
             Icon(Icons.dashboard, color: Colors.purpleAccent, size: 26),
             SizedBox(width: 14),
             Expanded(

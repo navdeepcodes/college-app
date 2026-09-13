@@ -53,7 +53,7 @@ class _CommentsScreenState extends State<CommentsScreen> {
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+          const SnackBar(
             content: Text('Comment not sent. Try again.'),
             backgroundColor: Colors.redAccent,
             behavior: SnackBarBehavior.floating,
@@ -125,7 +125,7 @@ class _CommentsScreenState extends State<CommentsScreen> {
               decoration: BoxDecoration(
                 color: Colors.black,
                 border: Border(
-                  top: BorderSide(color: Colors.white.withOpacity(0.1)),
+                  top: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
                 ),
               ),
               child: Row(
@@ -137,9 +137,9 @@ class _CommentsScreenState extends State<CommentsScreen> {
                       decoration: InputDecoration(
                         hintText: 'Add a comment...',
                         hintStyle:
-                        TextStyle(color: Colors.white.withOpacity(0.5)),
+                        TextStyle(color: Colors.white.withValues(alpha: 0.5)),
                         filled: true,
-                        fillColor: Colors.white.withOpacity(0.06),
+                        fillColor: Colors.white.withValues(alpha: 0.06),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(20),
                           borderSide: BorderSide.none,

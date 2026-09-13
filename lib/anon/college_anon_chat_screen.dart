@@ -68,7 +68,9 @@ class _CollegeAnonChatScreenState extends State<CollegeAnonChatScreen> {
     final roomCollegeId = _roomCollegeId;
 
     if (rawText.isEmpty || roomCollegeId.isEmpty ||
-        _anonId == null || _sending || user == null) return;
+        _anonId == null || _sending || user == null) {
+      return;
+    }
 
     final result = TextFilter.filter(rawText);
     if (!result.isAllowed) {
@@ -152,11 +154,11 @@ class _CollegeAnonChatScreenState extends State<CollegeAnonChatScreen> {
       backgroundColor: Colors.black,
       extendBodyBehindAppBar: true,
       appBar: AppBar(
-        backgroundColor: Colors.black.withOpacity(0.7),
+        backgroundColor: Colors.black.withValues(alpha: 0.7),
         elevation: 0,
         flexibleSpace: Container(
           decoration: BoxDecoration(
-            border: Border(bottom: BorderSide(color: Colors.white.withOpacity(0.1), width: 0.5)),
+            border: Border(bottom: BorderSide(color: Colors.white.withValues(alpha: 0.1), width: 0.5)),
           ),
         ),
         title: Column(
@@ -241,8 +243,8 @@ class _CollegeAnonChatScreenState extends State<CollegeAnonChatScreen> {
           top: 10
       ),
       decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.8),
-        border: Border(top: BorderSide(color: Colors.white.withOpacity(0.05))),
+        color: Colors.black.withValues(alpha: 0.8),
+        border: Border(top: BorderSide(color: Colors.white.withValues(alpha: 0.05))),
       ),
       child: Row(
         children: [
@@ -252,7 +254,7 @@ class _CollegeAnonChatScreenState extends State<CollegeAnonChatScreen> {
               decoration: BoxDecoration(
                 color: const Color(0xFF1C1C1E),
                 borderRadius: BorderRadius.circular(25),
-                border: Border.all(color: Colors.white.withOpacity(0.1)),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
               ),
               child: TextField(
                 controller: _msgController,
@@ -283,7 +285,7 @@ class _CollegeAnonChatScreenState extends State<CollegeAnonChatScreen> {
                 shape: BoxShape.circle,
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.deepPurpleAccent.withOpacity(0.4),
+                    color: Colors.deepPurpleAccent.withValues(alpha: 0.4),
                     blurRadius: 10,
                     offset: const Offset(0, 4),
                   )
@@ -324,10 +326,10 @@ class _MessageBubble extends StatelessWidget {
             bottomRight: Radius.circular(20),
             bottomLeft: Radius.circular(4),
           ),
-          border: Border.all(color: Colors.white.withOpacity(0.05)),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.2),
+              color: Colors.black.withValues(alpha: 0.2),
               blurRadius: 8,
               offset: const Offset(0, 4),
             )
@@ -339,7 +341,7 @@ class _MessageBubble extends StatelessWidget {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.02),
+                color: Colors.white.withValues(alpha: 0.02),
                 borderRadius: const BorderRadius.only(topLeft: Radius.circular(20), topRight: Radius.circular(20)),
               ),
               child: Row(

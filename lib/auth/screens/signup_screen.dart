@@ -132,7 +132,7 @@ class _SignupScreenState extends State<SignupScreen> {
             ),
             const SizedBox(height: 32),
             DropdownButtonFormField<String>(
-              value: _college,
+              initialValue: _college,
               isExpanded: true,
               dropdownColor: Colors.grey.shade900,
               items: colleges

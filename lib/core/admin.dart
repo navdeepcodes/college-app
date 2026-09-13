@@ -1,1 +1,1 @@
-const String ADMIN_UID = "OImOQirOL7eQNftKASo4FTrF6XA3";
+const String adminUid = "OImOQirOL7eQNftKASo4FTrF6XA3";

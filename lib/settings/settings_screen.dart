@@ -92,7 +92,7 @@ class SettingsScreen extends StatelessWidget {
           const Divider(),
 
           // ================= ADMIN ONLY =================
-          if (currentUid == ADMIN_UID) ...[
+          if (currentUid == adminUid) ...[
             const Padding(
               padding: EdgeInsets.fromLTRB(16, 8, 16, 4),
               child: Text(

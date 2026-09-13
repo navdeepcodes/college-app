@@ -156,10 +156,10 @@ class _EmptyMessagesState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
+    return const Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
-        children: const [
+        children: [
           Icon(Icons.chat_bubble_outline, size: 64),
           SizedBox(height: 12),
           Text(

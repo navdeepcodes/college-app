@@ -109,7 +109,7 @@ class _AnonHomeScreenState extends State<AnonHomeScreen> {
             shaderCallback: (rect) => LinearGradient(
               colors: [
                 Colors.deepPurpleAccent,
-                Colors.white.withOpacity(0.9),
+                Colors.white.withValues(alpha: 0.9),
               ],
             ).createShader(rect),
             child: const Text(
@@ -282,16 +282,16 @@ class _AnonGroupCard extends StatelessWidget {
           gradient: highlight
               ? LinearGradient(
             colors: [
-              Colors.deepPurple.withOpacity(0.25),
-              Colors.deepPurple.withOpacity(0.08),
+              Colors.deepPurple.withValues(alpha: 0.25),
+              Colors.deepPurple.withValues(alpha: 0.08),
             ],
           )
               : null,
           color: highlight ? null : const Color(0xFF1C1C1E),
           border: Border.all(
             color: highlight
-                ? Colors.deepPurple.withOpacity(0.4)
-                : Colors.white.withOpacity(0.06),
+                ? Colors.deepPurple.withValues(alpha: 0.4)
+                : Colors.white.withValues(alpha: 0.06),
           ),
         ),
         child: Row(
@@ -341,9 +341,9 @@ class _EmptyPrivateGroups extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 36),
-      child: const Text(
+    return const Padding(
+      padding: EdgeInsets.symmetric(vertical: 36),
+      child: Text(
         'No private groups yet\nCreate one to start chatting',
         textAlign: TextAlign.center,
         style: TextStyle(color: Colors.white38, height: 1.6),
