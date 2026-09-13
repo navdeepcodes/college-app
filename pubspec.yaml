@@ -27,7 +27,12 @@ dependencies:
   # ================= MEDIA / STORAGE =================
   image_picker: ^1.1.2
 
-
+  # ================= MOMENTS (SNAPCHAT STYLE) =================
+  # kMomentsEnabled in feed_screen.dart is false — feature restored but
+  # not user-reachable (see git history for why: don't re-remove these
+  # as "unused" without checking that flag first).
+  camera: ^0.11.0+2
+  video_player: ^2.8.1
 
 
 dev_dependencies:

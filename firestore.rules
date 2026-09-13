@@ -448,6 +448,19 @@ function isOwnCollegeRoom(chatId) {
       }
 
       // =========================
+      // MOMENTS (EPHEMERAL)
+      // =========================
+      match /moments/{momentId} {
+        allow read: if true;
+
+        allow create: if isSignedIn()
+          && request.resource.data.userId == request.auth.uid;
+
+        allow update, delete: if isSignedIn()
+          && resource.data.userId == request.auth.uid;
+      }
+
+      // =========================
       // ANONYMOUS CHATS (STRICT COLLEGE ISOLATION)
       // =========================
       match /anon_chats/{chatId} {

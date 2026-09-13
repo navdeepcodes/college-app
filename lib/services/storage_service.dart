@@ -45,6 +45,18 @@ class StorageService {
     return _supabase.storage.from('posts').getPublicUrl(path);
   }
 
+  // ================= MOMENTS =================
+  Future<String> uploadMoment({
+    required String userId,
+    required File file,
+  }) async {
+    final path =
+        'moments/$userId/${DateTime.now().millisecondsSinceEpoch}.jpg';
+
+    await _supabase.storage.from('moments').upload(path, file);
+    return _supabase.storage.from('moments').getPublicUrl(path);
+  }
+
   // ================= EVENT MEDIA =================
   Future<String> uploadEventMedia({
     required String eventId,

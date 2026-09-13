@@ -5,11 +5,17 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../services/storage_service.dart';
 import '../notifications/notifications_screen.dart';
 import '../chat/chats_list_screen.dart';
+import '../moments/moments_screen.dart';
 import '../profile/profile_screen.dart';
 import '../feed/comments_screen.dart';
 import 'post_user_header.dart';
 import 'add_create_selector_sheet.dart';
 import '../auth/services/college_detector.dart';
+
+// Moments is restored in the codebase (screens, storage upload path,
+// Firestore rules/indexes) but intentionally not user-reachable: it's not
+// part of the current live product. Flip this to re-enable the entry point.
+const bool kMomentsEnabled = false;
 
 class FeedScreen extends StatefulWidget {
   const FeedScreen({super.key});
@@ -51,6 +57,14 @@ class _FeedScreenState extends State<FeedScreen> {
               builder: (_) => const AddCreateSelectorSheet(),
             ),
           ),
+          if (kMomentsEnabled)
+            _TopPillIcon(
+              icon: Icons.bolt_outlined,
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const MomentsScreen()),
+              ),
+            ),
           _TopPillIcon(
             icon: Icons.chat_bubble_outline,
             onTap: () => Navigator.push(
