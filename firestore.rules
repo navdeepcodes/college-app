@@ -70,8 +70,26 @@ function isOwnCollegeRoom(chatId) {
         // by the platform admin (bootstrap/oversight). An unfiltered users query
         // is now rejected at the database boundary, closing the global profile
         // enumeration previously possible from search/start-conversation.
+        //
+        // isOwner(userId) is checked FIRST, independent of `resource`: a brand
+        // new signup's very first read is auth_gate.dart's _UserBootstrap
+        // checking whether ITS OWN users/{uid} doc exists yet — it doesn't,
+        // so `resource` is null, and the old unconditional
+        // `resource.data.collegeId` dereference threw an evaluation error
+        // (Firestore denies with permission-denied on a nonexistent doc when
+        // the rule dereferences resource.data, rather than returning
+        // exists:false) instead of letting the client see "doesn't exist yet"
+        // and proceed to create it. This broke EVERY new signup's bootstrap
+        // — confirmed live, on-device, against a real client build,
+        // signing in a real test account end-to-end (rules-file unit tests
+        // alone didn't catch this: they assert the create path directly and
+        // never replicated the client's get-then-create sequence). A user
+        // reading their own profile is never a privacy concern regardless of
+        // whether it exists yet, so this is a correctness fix, not a
+        // loosened boundary — reading a DIFFERENT college's or a
+        // nonexistent OTHER user's doc is still denied exactly as before.
         allow read: if isSignedIn()
-          && (resource.data.collegeId == userCollege() || isAdmin());
+          && (isOwner(userId) || resource.data.collegeId == userCollege() || isAdmin());
 
         allow create: if isSignedIn()
           && isOwner(userId)

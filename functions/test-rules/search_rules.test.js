@@ -99,6 +99,24 @@ async function main() {
   await test('6 admin reads cross-college profile allowed', () =>
     assertSucceeds(getDoc(doc(a, 'users', RVCE))));
 
+  // Regression (Phase 19): a brand-new signup's very first Firestore call is
+  // auth_gate.dart's _UserBootstrap reading its OWN users/{uid} doc to check
+  // whether it exists yet — before any doc has been created. The old rule
+  // (`resource.data.collegeId == userCollege() || isAdmin()`) unconditionally
+  // dereferenced resource.data, which throws rather than evaluating false
+  // when resource is null (Firestore denies with permission-denied on a
+  // nonexistent doc in that case, instead of returning exists:false) — so
+  // EVERY new signup's bootstrap failed permanently, stuck on "couldn't
+  // reach the server." Confirmed live, on-device, signing in a real test
+  // account end-to-end against a real client build (this rules-only suite
+  // was green throughout — it asserts the create path directly and never
+  // replicated the client's actual get-then-create sequence).
+  const f = testEnv.authenticatedContext('brand-new-uid', { email: 't2@nmit.ac.in' }).firestore();
+  await test('6a own profile read allowed BEFORE the doc exists (bootstrap)', () =>
+    assertSucceeds(getDoc(doc(f, 'users', 'brand-new-uid'))));
+  await test('6b reading a DIFFERENT nonexistent user doc still denied', () =>
+    assertFails(getDoc(doc(f, 'users', 'someone-elses-uid'))));
+
   console.log('\n== Directory queries ==');
 
   // A same-college query surfaces only profiles matching the caller's college.
