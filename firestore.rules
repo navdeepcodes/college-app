@@ -38,7 +38,19 @@ rules_version = '2';
       // The room id is derived server-side from users.collegeId, so a client
       // cannot name another college's room. Guard `is string` because a user
       // without a completed profile (or a non-existent user doc) has no collegeId.
-      function isOwnCollegeRoom(chatId) {
+      function userCollege() {
+  return get(
+    /databases/$(database)/documents/users/$(request.auth.uid)
+  ).data.collegeId;
+}
+
+function postCollege(postId) {
+  return get(
+    /databases/$(database)/documents/posts/$(postId)
+  ).data.collegeId;
+}
+
+function isOwnCollegeRoom(chatId) {
         let collegeId = get(
           /databases/$(database)/documents/users/$(request.auth.uid)
         ).data.collegeId;
@@ -66,16 +78,65 @@ rules_version = '2';
       }
 
       // =========================
-      // POSTS
+      // POSTS (COLLEGE ISOLATED FEED)
       // =========================
+      // The campus feed is college-scoped: a post is only readable by members
+      // of the college stamped on it (written from the owner's users.collegeId).
+      // Posts from earlier builds have no collegeId -> denied (strictest-first;
+      // a one-time backfill can migrate them, see docs/security-college-isolation.md).
       match /posts/{postId} {
-        allow read: if true;
+        allow read: if isSignedIn()
+          && resource.data.collegeId == userCollege();
 
         allow create: if isSignedIn()
-          && request.resource.data.userId == request.auth.uid;
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.collegeId == userCollege();
 
-        allow update, delete: if isSignedIn()
-          && resource.data.userId == request.auth.uid;
+        // Owner edits freely; a same-college peer may only bump the like or
+        // comment counter (feed toggle / add-comment), never touch content.
+        allow update: if isSignedIn()
+          && resource.data.collegeId == userCollege()
+          && (
+            resource.data.userId == request.auth.uid
+            || request.resource.data.diff(resource.data).affectedKeys()
+                .hasOnly(['likesCount'])
+            || request.resource.data.diff(resource.data).affectedKeys()
+                .hasOnly(['commentsCount'])
+          );
+
+        allow delete: if isSignedIn()
+          && resource.data.userId == request.auth.uid
+          && resource.data.collegeId == userCollege();
+
+        // ---- likes (one per user, keyed by uid) ----
+        match /likes/{likeId} {
+          allow read: if isSignedIn() && postCollege(postId) == userCollege();
+
+          allow create: if isSignedIn()
+            && postCollege(postId) == userCollege()
+            && request.resource.data.userId == request.auth.uid;
+
+          allow delete: if isSignedIn()
+            && postCollege(postId) == userCollege()
+            && resource.data.userId == request.auth.uid;
+
+          allow update: if false;
+        }
+
+        // ---- comments ----
+        match /comments/{commentId} {
+          allow read: if isSignedIn() && postCollege(postId) == userCollege();
+
+          allow create: if isSignedIn()
+            && postCollege(postId) == userCollege()
+            && request.resource.data.userId == request.auth.uid
+            && request.resource.data.text is string
+            && request.resource.data.text.trim().size() > 0;
+
+          allow update, delete: if isSignedIn()
+            && postCollege(postId) == userCollege()
+            && resource.data.userId == request.auth.uid;
+        }
       }
 
       // =========================

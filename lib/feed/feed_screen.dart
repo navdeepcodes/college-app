@@ -10,6 +10,7 @@ import '../profile/profile_screen.dart';
 import '../feed/comments_screen.dart';
 import 'post_user_header.dart';
 import 'add_create_selector_sheet.dart';
+import '../auth/services/college_detector.dart';
 
 class FeedScreen extends StatefulWidget {
   const FeedScreen({super.key});
@@ -134,15 +135,35 @@ class _MergedFeed extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('posts')
-          .orderBy('createdAt', descending: true)
-          .snapshots(),
-      builder: (context, snap) {
-        if (!snap.hasData) {
-          return const Center(child: CircularProgressIndicator());
+    // The campus feed is college-isolated: resolve the current user's
+    // canonical collegeId (users doc) and only stream that college's posts.
+    // (Client-side filtering alone is not security; the rules enforce the
+    // same binding — see firestore.rules posts block.)
+    return FutureBuilder<DocumentSnapshot>(
+      future: FirebaseFirestore.instance.collection('users').doc(uid).get(),
+      builder: (context, userSnap) {
+        final collegeId = userSnap.hasData
+            ? canonicalCollegeId(userSnap.data!.data() as Map<String, dynamic>?)
+            : '';
+        if (collegeId.isEmpty) {
+          return const Center(
+            child: Text(
+              'Complete your profile to see the campus feed',
+              style: TextStyle(color: Colors.white70),
+            ),
+          );
         }
+
+        return StreamBuilder<QuerySnapshot>(
+          stream: FirebaseFirestore.instance
+              .collection('posts')
+              .where('collegeId', isEqualTo: collegeId)
+              .orderBy('createdAt', descending: true)
+              .snapshots(),
+          builder: (context, snap) {
+            if (!snap.hasData) {
+              return const Center(child: CircularProgressIndicator());
+            }
 
         final docs = snap.data!.docs;
         if (docs.isEmpty) {
@@ -263,7 +284,9 @@ class _MergedFeed extends StatelessWidget {
           },
         );
       },
-    );
+          );
+        },
+      );
   }
 }
 

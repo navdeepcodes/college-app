@@ -6,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../services/storage_service.dart';
+import '../auth/services/college_detector.dart';
 
 class AddPostScreen extends StatefulWidget {
   const AddPostScreen({super.key});
@@ -45,6 +46,25 @@ class _AddPostScreenState extends State<AddPostScreen> {
       final postRef =
       FirebaseFirestore.instance.collection('posts').doc();
 
+      // College identity for the isolated campus feed: the post carries the
+      // owner's canonical collegeId, and the Firestore rule requires it to
+      // match users/{uid}.collegeId on write and gates reads on it.
+      final userSnap = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .get();
+      final collegeId = canonicalCollegeId(userSnap.data());
+      if (collegeId.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Finish your profile to post to the campus feed'),
+            ),
+          );
+        }
+        return;
+      }
+
       final mediaPath = await _storageService.uploadPostMedia(
         userId: uid,
         postId: postRef.id,
@@ -53,6 +73,7 @@ class _AddPostScreenState extends State<AddPostScreen> {
 
       await postRef.set({
         'userId': uid,
+        'collegeId': collegeId,
         'caption': _captionController.text.trim(),
         'mediaPath': mediaPath,
         'createdAt': FieldValue.serverTimestamp(),
