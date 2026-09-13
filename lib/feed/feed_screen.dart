@@ -141,6 +141,19 @@ class _MergedFeed extends StatelessWidget {
     return FutureBuilder<DocumentSnapshot>(
       future: FirebaseFirestore.instance.collection('users').doc(uid).get(),
       builder: (context, userSnap) {
+        if (userSnap.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        if (userSnap.hasError) {
+          return const Center(
+            child: Text(
+              'Failed to load your profile',
+              style: TextStyle(color: Colors.white70),
+            ),
+          );
+        }
+
         final collegeId = userSnap.hasData
             ? canonicalCollegeId(userSnap.data!.data() as Map<String, dynamic>?)
             : '';
@@ -158,8 +171,18 @@ class _MergedFeed extends StatelessWidget {
               .collection('posts')
               .where('collegeId', isEqualTo: collegeId)
               .orderBy('createdAt', descending: true)
+              .limit(50)
               .snapshots(),
           builder: (context, snap) {
+            if (snap.hasError) {
+              return const Center(
+                child: Text(
+                  'Failed to load the feed',
+                  style: TextStyle(color: Colors.white70),
+                ),
+              );
+            }
+
             if (!snap.hasData) {
               return const Center(child: CircularProgressIndicator());
             }

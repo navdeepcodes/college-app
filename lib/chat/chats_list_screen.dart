@@ -39,6 +39,10 @@ class ChatsListScreen extends StatelessWidget {
             .where('members', arrayContains: uid)
             .snapshots(),
         builder: (context, snap) {
+          if (snap.hasError) {
+            return const Center(child: Text('Failed to load messages'));
+          }
+
           if (snap.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }

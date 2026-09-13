@@ -36,6 +36,10 @@ class ClubProfileScreen extends StatelessWidget {
             .doc(clubId)
             .snapshots(),
         builder: (context, clubSnap) {
+          if (clubSnap.hasError) {
+            return const Center(child: Text('Failed to load club'));
+          }
+
           if (!clubSnap.hasData) {
             return const Center(child: CircularProgressIndicator());
           }
@@ -176,25 +180,7 @@ class _RoleActions extends StatelessWidget {
           .snapshots(),
       builder: (context, snap) {
         if (!snap.hasData || !snap.data!.exists) {
-          return _PrimaryButton(
-            icon: Icons.person_add_alt_1,
-            text: 'Request to Join Club',
-            onTap: () async {
-              await FirebaseFirestore.instance
-                  .collection('club_join_requests')
-                  .add({
-                'clubId': clubId,
-                'userId': uid,
-                'status': 'pending',
-                'createdAt': FieldValue.serverTimestamp(),
-              });
-
-              if (!context.mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Join request sent')),
-              );
-            },
-          );
+          return _JoinClubButton(clubId: clubId, uid: uid);
         }
 
         final role =
@@ -243,6 +229,89 @@ class _RoleActions extends StatelessWidget {
               ),
             );
           },
+        );
+      },
+    );
+  }
+}
+
+// =====================================================
+// JOIN BUTTON (reflects an existing pending request; guards
+// against duplicate club_join_requests docs from a double-tap)
+// =====================================================
+
+class _JoinClubButton extends StatefulWidget {
+  final String clubId;
+  final String uid;
+
+  const _JoinClubButton({required this.clubId, required this.uid});
+
+  @override
+  State<_JoinClubButton> createState() => _JoinClubButtonState();
+}
+
+class _JoinClubButtonState extends State<_JoinClubButton> {
+  bool _submitting = false;
+
+  Future<void> _requestToJoin() async {
+    if (_submitting) return;
+    setState(() => _submitting = true);
+    final messenger = ScaffoldMessenger.of(context);
+
+    try {
+      final firestore = FirebaseFirestore.instance;
+      final existing = await firestore
+          .collection('club_join_requests')
+          .where('clubId', isEqualTo: widget.clubId)
+          .where('userId', isEqualTo: widget.uid)
+          .where('status', isEqualTo: 'pending')
+          .limit(1)
+          .get();
+
+      if (existing.docs.isEmpty) {
+        await firestore.collection('club_join_requests').add({
+          'clubId': widget.clubId,
+          'userId': widget.uid,
+          'status': 'pending',
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+      }
+
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Join request sent')),
+      );
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text('Request failed: $e')));
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('club_join_requests')
+          .where('clubId', isEqualTo: widget.clubId)
+          .where('userId', isEqualTo: widget.uid)
+          .where('status', isEqualTo: 'pending')
+          .limit(1)
+          .snapshots(),
+      builder: (context, snap) {
+        final alreadyPending = snap.hasData && snap.data!.docs.isNotEmpty;
+
+        if (alreadyPending) {
+          return const _PrimaryButton(
+            icon: Icons.hourglass_top,
+            text: 'Request Pending',
+            onTap: null,
+          );
+        }
+
+        return _PrimaryButton(
+          icon: Icons.person_add_alt_1,
+          text: _submitting ? 'Sending…' : 'Request to Join Club',
+          onTap: _submitting ? null : _requestToJoin,
         );
       },
     );
@@ -327,7 +396,7 @@ class _AdminDashboardCard extends StatelessWidget {
 class _PrimaryButton extends StatelessWidget {
   final IconData icon;
   final String text;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   const _PrimaryButton({
     required this.icon,
@@ -343,7 +412,7 @@ class _PrimaryButton extends StatelessWidget {
         height: 54,
         margin: const EdgeInsets.only(bottom: 12),
         decoration: BoxDecoration(
-          color: Colors.deepPurple,
+          color: onTap == null ? Colors.deepPurple.withValues(alpha: 0.5) : Colors.deepPurple,
           borderRadius: BorderRadius.circular(28),
         ),
         child: Row(

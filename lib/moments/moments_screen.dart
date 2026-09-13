@@ -95,8 +95,18 @@ class _MomentsScreenState extends State<MomentsScreen>
               stream: FirebaseFirestore.instance
                   .collection('moments')
                   .orderBy('expiresAt', descending: true)
+                  .limit(200)
                   .snapshots(),
               builder: (_, snap) {
+                if (snap.hasError) {
+                  return const Center(
+                    child: Text(
+                      'Failed to load moments',
+                      style: TextStyle(color: Colors.white70),
+                    ),
+                  );
+                }
+
                 if (!snap.hasData) {
                   return const Center(
                     child: CircularProgressIndicator(color: Colors.white),

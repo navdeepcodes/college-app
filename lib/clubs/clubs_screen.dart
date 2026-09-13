@@ -158,8 +158,13 @@ class _YourClubs extends StatelessWidget {
       stream: FirebaseFirestore.instance
           .collection('club_members')
           .where('userId', isEqualTo: uid)
+          .limit(200)
           .snapshots(),
       builder: (context, snap) {
+        if (snap.hasError) {
+          return const Center(child: Text('Failed to load your clubs'));
+        }
+
         if (snap.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
@@ -193,8 +198,15 @@ class _ExploreClubs extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance.collection('clubs').snapshots(),
+      stream: FirebaseFirestore.instance
+          .collection('clubs')
+          .limit(200)
+          .snapshots(),
       builder: (context, snap) {
+        if (snap.hasError) {
+          return const Center(child: Text('Failed to load clubs'));
+        }
+
         if (snap.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }

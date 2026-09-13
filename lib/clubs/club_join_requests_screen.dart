@@ -85,7 +85,7 @@ class _EmptyState extends StatelessWidget {
 // REQUEST CARD
 // =====================================================
 
-class _RequestCard extends StatelessWidget {
+class _RequestCard extends StatefulWidget {
   final String requestId;
   final String clubId;
   final String userId;
@@ -97,6 +97,17 @@ class _RequestCard extends StatelessWidget {
   });
 
   @override
+  State<_RequestCard> createState() => _RequestCardState();
+}
+
+class _RequestCardState extends State<_RequestCard> {
+  bool _busy = false;
+
+  String get requestId => widget.requestId;
+  String get clubId => widget.clubId;
+  String get userId => widget.userId;
+
+  @override
   Widget build(BuildContext context) {
     return FutureBuilder<DocumentSnapshot>(
       future:
@@ -106,6 +117,7 @@ class _RequestCard extends StatelessWidget {
           return const SizedBox(height: 80);
         }
 
+        if (!userSnap.data!.exists) return const SizedBox();
         final user = userSnap.data!.data() as Map<String, dynamic>?;
 
         if (user == null) return const SizedBox();
@@ -166,13 +178,14 @@ class _RequestCard extends StatelessWidget {
                 children: [
                   Expanded(
                     child: _RejectButton(
-                      onTap: () => _reject(context),
+                      onTap: _busy ? null : () => _reject(context),
                     ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: _ApproveButton(
-                      onTap: () => _approve(context),
+                      busy: _busy,
+                      onTap: _busy ? null : () => _approve(context),
                     ),
                   ),
                 ],
@@ -189,38 +202,46 @@ class _RequestCard extends StatelessWidget {
   // =====================================================
 
   Future<void> _approve(BuildContext context) async {
-    final batch = FirebaseFirestore.instance.batch();
+    setState(() => _busy = true);
+    final messenger = ScaffoldMessenger.of(context);
 
-    final memberRef = FirebaseFirestore.instance
-        .collection('club_members')
-        .doc('${clubId}_$userId');
+    final firestore = FirebaseFirestore.instance;
+    final memberRef =
+        firestore.collection('club_members').doc('${clubId}_$userId');
+    final clubRef = firestore.collection('clubs').doc(clubId);
+    final requestRef =
+        firestore.collection('club_join_requests').doc(requestId);
 
-    final clubRef =
-    FirebaseFirestore.instance.collection('clubs').doc(clubId);
+    try {
+      // Transaction so a double-tap (or the request being approved/rejected
+      // from elsewhere concurrently) can't double-increment membersCount:
+      // it re-reads the request fresh and no-ops if it's already gone.
+      await firestore.runTransaction((txn) async {
+        final freshRequest = await txn.get(requestRef);
+        if (!freshRequest.exists) return;
 
-    final requestRef = FirebaseFirestore.instance
-        .collection('club_join_requests')
-        .doc(requestId);
+        txn.set(memberRef, {
+          'clubId': clubId,
+          'userId': userId,
+          'role': 'member',
+          'joinedAt': FieldValue.serverTimestamp(),
+        });
 
-    batch.set(memberRef, {
-      'clubId': clubId,
-      'userId': userId,
-      'role': 'member',
-      'joinedAt': FieldValue.serverTimestamp(),
-    });
+        txn.update(clubRef, {
+          'membersCount': FieldValue.increment(1),
+        });
 
-    batch.update(clubRef, {
-      'membersCount': FieldValue.increment(1),
-    });
+        txn.delete(requestRef);
+      });
 
-    batch.delete(requestRef);
-
-    await batch.commit();
-
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Member approved')),
-    );
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Member approved')),
+      );
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text('Approval failed: $e')));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   // =====================================================
@@ -228,15 +249,23 @@ class _RequestCard extends StatelessWidget {
   // =====================================================
 
   Future<void> _reject(BuildContext context) async {
-    await FirebaseFirestore.instance
-        .collection('club_join_requests')
-        .doc(requestId)
-        .delete();
+    setState(() => _busy = true);
+    final messenger = ScaffoldMessenger.of(context);
 
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Request rejected')),
-    );
+    try {
+      await FirebaseFirestore.instance
+          .collection('club_join_requests')
+          .doc(requestId)
+          .delete();
+
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Request rejected')),
+      );
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text('Reject failed: $e')));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 }
 
@@ -245,9 +274,10 @@ class _RequestCard extends StatelessWidget {
 // =====================================================
 
 class _ApproveButton extends StatelessWidget {
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
+  final bool busy;
 
-  const _ApproveButton({required this.onTap});
+  const _ApproveButton({required this.onTap, this.busy = false});
 
   @override
   Widget build(BuildContext context) {
@@ -256,24 +286,33 @@ class _ApproveButton extends StatelessWidget {
       child: Container(
         height: 44,
         decoration: BoxDecoration(
-          color: Colors.green,
+          color: busy ? Colors.green.withValues(alpha: 0.5) : Colors.green,
           borderRadius: BorderRadius.circular(22),
         ),
         alignment: Alignment.center,
-        child: const Text(
-          'Approve',
-          style: TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
+        child: busy
+            ? const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white,
+                ),
+              )
+            : const Text(
+                'Approve',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
       ),
     );
   }
 }
 
 class _RejectButton extends StatelessWidget {
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   const _RejectButton({required this.onTap});
 

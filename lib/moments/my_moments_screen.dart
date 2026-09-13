@@ -84,8 +84,18 @@ class MyMomentsScreen extends StatelessWidget {
             .collection('moments')
             .where('userId', isEqualTo: user.uid)
             .orderBy('createdAt', descending: true)
+            .limit(200)
             .snapshots(),
         builder: (_, snapshot) {
+          if (snapshot.hasError) {
+            return const Center(
+              child: Text(
+                'Failed to load your moments',
+                style: TextStyle(color: Colors.white70),
+              ),
+            );
+          }
+
           if (!snapshot.hasData) {
             return const Center(child: CircularProgressIndicator());
           }

@@ -20,8 +20,20 @@ class UserPostsGrid extends StatelessWidget {
       stream: FirebaseFirestore.instance
           .collection('posts')
           .where('userId', isEqualTo: uid)
+          .orderBy('createdAt', descending: true)
+          .limit(60)
           .snapshots(),
       builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return const Padding(
+            padding: EdgeInsets.all(32),
+            child: Text(
+              'Failed to load posts',
+              style: TextStyle(color: Colors.white54),
+            ),
+          );
+        }
+
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Padding(
             padding: EdgeInsets.all(32),
