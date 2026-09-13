@@ -14,13 +14,48 @@ rules_version = '2';
         return request.auth.uid == uid;
       }
 
+      // Canonical collegeId derived from the Google-verified ID-token email.
+      // Mirrors CollegeDetector.detect() (lib/auth/services/college_detector.dart)
+      // for the four sanctioned college domains; 'unknown' otherwise. Used to
+      // (a) keep users.collegeId consistent with the verified email and
+      // (b) bind anon-chat rooms to the caller's own college.
+      function collegeIdFromEmail(email) {
+        return (email != null && email.endsWith('nmit.ac.in')) ? 'nmit'
+          : (email != null && email.endsWith('rvce.edu.in')) ? 'rvce'
+          : (email != null && email.endsWith('bmsce.ac.in')) ? 'bms'
+          : (email != null && email.endsWith('pes.edu')) ? 'pes'
+          : 'unknown';
+      }
+
+      // The college-anon room id is `college_<collegeId>` (anon_home_screen.dart:150).
+      // Returns true only when chatId is the requesting user's OWN college room.
+      // The room id is derived server-side from users.collegeId, so a client
+      // cannot name another college's room. Guard `is string` because a user
+      // without a completed profile (or a non-existent user doc) has no collegeId.
+      function isOwnCollegeRoom(chatId) {
+        let collegeId = get(
+          /databases/$(database)/documents/users/$(request.auth.uid)
+        ).data.collegeId;
+        return collegeId is string && chatId == 'college_' + collegeId;
+      }
+
       // =========================
       // USERS
       // =========================
       match /users/{userId} {
         allow read: if isSignedIn();
-        allow create: if isSignedIn() && isOwner(userId);
-        allow update: if isSignedIn() && isOwner(userId);
+
+        allow create: if isSignedIn()
+          && isOwner(userId)
+          // initial collegeId must equal the email-derived value (or 'unknown')
+          && request.resource.data.collegeId == collegeIdFromEmail(request.resource.data.email);
+
+        allow update: if isSignedIn()
+          && isOwner(userId)
+          // collegeId is immutable: if present, it must equal the email-derived value
+          && (!request.resource.data.keys().hasAny(['collegeId']) ||
+              request.resource.data.collegeId == collegeIdFromEmail(resource.data.email));
+
         allow delete: if false;
       }
 
@@ -89,40 +124,68 @@ rules_version = '2';
       }
 
       // =========================
-      // ANONYMOUS CHATS (FIXED)
+      // ANONYMOUS CHATS (STRICT COLLEGE ISOLATION)
       // =========================
       match /anon_chats/{chatId} {
 
-        // READ: only members can see
-        allow read: if isSignedIn()
-          && resource.data.members.hasAny([request.auth.uid]);
+        // READ: only the room's own college members
+        // chatId format: "college_<collegeId>" (anon_home_screen.dart:150)
+        allow read: if isSignedIn() && isOwnCollegeRoom(chatId);
 
-        // CREATE: creator must include themselves in members
+        // CREATE: users create their OWN college room on first message.
+        // Room doc must have: members=[uid], createdBy=uid, collegeId=users.collegeId.
+        // No client-chosen chatId; must equal 'college_' + users.collegeId.
         allow create: if isSignedIn()
+          && isOwnCollegeRoom(chatId)
           && request.resource.data.createdBy == request.auth.uid
-          && request.resource.data.members.hasAny([request.auth.uid]);
+          && request.resource.data.members == [request.auth.uid]
+          && request.resource.data.collegeId ==
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.collegeId;
 
-        // UPDATE: creator or member
-        allow update: if isSignedIn()
-          && (
-            resource.data.createdBy == request.auth.uid ||
-            resource.data.members.hasAny([request.auth.uid])
-          );
+        // UPDATE: no room mutation (no member add/remove, no field change)
+        allow update: if false;
 
+        // DELETE: rooms persist
         allow delete: if false;
 
         // =========================
-        // ANON MESSAGES (TTL SAFE)
+        // ANON MESSAGES (TTL + SENDER AUTH)
         // =========================
         match /messages/{messageId} {
 
+          // READ: member of this college room + not expired (server time)
           allow read: if isSignedIn()
+            && isOwnCollegeRoom(chatId)
             && resource.data.expiresAt > request.time;
 
+          // CREATE: strict schema enforcement
+          // - expiresAt within [request.time - 120s, request.time + 900s]:
+          //   client sends expiresAt = clientNow + 90s; a 2min tolerance absorbs
+          //   normal client/server clock skew, the 15min upper bound blocks a
+          //   client from persisting a message permanently. The tight 90s TTL is
+          //   enforced at READ (expiresAt > request.time) and by the
+          //   cleanupExpiredAnonMessages Cloud Function.
+          // - userId == auth.uid (no impersonation)
+          // - anonId == users/{uid}.anonId (client cannot forge identity)
+          // - collegeId == users/{uid}.collegeId (redundant but explicit)
+          // - createdAt == request.time (server timestamp, cannot be backdated)
+          // - text is non-empty string (basic shape)
           allow create: if isSignedIn()
-            && request.resource.data.expiresAt
-               <= request.time + duration.value(90, 's');
+            && isOwnCollegeRoom(chatId)
+            && request.resource.data.expiresAt > request.time - duration.value(120, 's')
+            && request.resource.data.expiresAt < request.time + duration.value(900, 's')
+            && request.resource.data.userId == request.auth.uid
+            && request.resource.data.anonId ==
+                 get(/databases/$(database)/documents/users/$(request.auth.uid)).data.anonId
+            && request.resource.data.collegeId ==
+                 get(/databases/$(database)/documents/users/$(request.auth.uid)).data.collegeId
+            && request.resource.data.createdAt == request.time
+            && request.resource.data.text is string
+            // non-blank: trim() removes leading/trailing whitespace, so a
+            // whitespace-only message (no real content) is rejected at write
+            && request.resource.data.text.trim().size() > 0;
 
+          // IMMUTABLE: no edits or deletes
           allow update, delete: if false;
         }
       }

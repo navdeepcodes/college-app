@@ -52,11 +52,23 @@ class _CollegeAnonChatScreenState extends State<CollegeAnonChatScreen> {
     });
   }
 
+  /// The canonical college slug embedded in the room id (`college_<collegeId>`).
+  /// Sent with every message so the Firestore rule can verify
+  /// `collegeId == users/{uid}.collegeId`.
+  String get _roomCollegeId {
+    const prefix = 'college_';
+    return widget.chatId.startsWith(prefix)
+        ? widget.chatId.substring(prefix.length)
+        : '';
+  }
+
   Future<void> _sendMessage() async {
     final user = FirebaseAuth.instance.currentUser;
     final rawText = _msgController.text.trim();
+    final roomCollegeId = _roomCollegeId;
 
-    if (rawText.isEmpty || _anonId == null || _sending || user == null) return;
+    if (rawText.isEmpty || roomCollegeId.isEmpty ||
+        _anonId == null || _sending || user == null) return;
 
     final result = TextFilter.filter(rawText);
     if (!result.isAllowed) {
@@ -84,7 +96,6 @@ class _CollegeAnonChatScreenState extends State<CollegeAnonChatScreen> {
     _msgController.clear();
 
     try {
-      final now = DateTime.now();
       final batch = FirebaseFirestore.instance.batch();
       final msgRef = FirebaseFirestore.instance
           .collection('anon_chats')
@@ -98,8 +109,9 @@ class _CollegeAnonChatScreenState extends State<CollegeAnonChatScreen> {
         'anonId': _anonId,
         'text': textToUpload,
         'userId': user.uid,
+        'collegeId': roomCollegeId,
         'createdAt': FieldValue.serverTimestamp(),
-        'expiresAt': Timestamp.fromDate(now.add(const Duration(seconds: 90))),
+        'expiresAt': Timestamp.fromDate(DateTime.now().add(const Duration(seconds: 90))),
       });
 
       batch.update(userRef, {
