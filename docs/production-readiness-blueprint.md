@@ -65,7 +65,7 @@ The product's core value proposition — and its core trust boundary — is **co
 | 36 | Push notifications | G | Explicitly out of scope this mission (Part 11) — documented, not built |
 | 37 | Android build | A | Fixed Phase 19; structurally sound; blocked only on a real `google-services.json` (see §14) |
 | 38 | Android release signing | G | No `key.properties`; falls back to debug signing (documented, cannot fabricate) |
-| 39 | iOS build | **A (verified this session)** | Real `GoogleService-Info.plist` present, bundle ID matches; `flutter build ios --simulator --no-codesign` succeeded (see §15) |
+| 39 | iOS build | **B (partially verified this session)** | Real `GoogleService-Info.plist`, bundle ID matches, CocoaPods dependency graph resolves cleanly; full `xcodebuild` compile not completed (no simulator runtime installed on this machine) — see §12 |
 | 40 | Firestore security rules | A | 164/164 rules-emulator tests pass after this session's sweep (§10) |
 | 41 | Content moderation (text filter) | B | Client-side keyword filter only; trivially bypassable, no server-side enforcement |
 
@@ -75,7 +75,7 @@ The product's core value proposition — and its core trust boundary — is **co
 
 These work correctly today, are reachable through normal navigation, are covered by passing tests (rules-level, and/or verified live on-device this mission or a prior one), and have no known gap that would block real users. Full detail already exists in prior phase reports and in this session's own investigation; no further action needed for GA on these specifically:
 
-Auth/bootstrap (#1–3), feed core (#4–7), search (#8), friends core (#9–10), 1:1 chat (#11), club lifecycle core (#12, 14, 15, 16), notification creation (#26), anonymous chat (#29), both Cloud Functions (#33–34), club counters (#35), Firestore rules as a whole (#40, after §10's fix), and — newly confirmed this session — the iOS build (#39).
+Auth/bootstrap (#1–3), feed core (#4–7), search (#8), friends core (#9–10), 1:1 chat (#11), club lifecycle core (#12, 14, 15, 16), notification creation (#26), anonymous chat (#29), both Cloud Functions (#33–34), club counters (#35), and Firestore rules as a whole (#40, after §10's fix). The iOS build (#39) is B, not A — see §12: dependency resolution is confirmed real, a full compile is not yet.
 
 ## 4. Fragile Features (B)
 
@@ -227,11 +227,11 @@ Every `match` block in `firestore.rules` (20 total) was read in full and checked
 
 ## 12. iOS Requirements
 
-- **CURRENT STATE (verified this session, not merely carried over from a prior report):** `ios/Runner/GoogleService-Info.plist` exists and is a real (non-placeholder) file — `PROJECT_ID: navdeep-college-app`, `BUNDLE_ID: com.navdeep.collegeapp.collegeApp`. This bundle ID matches `PRODUCT_BUNDLE_IDENTIFIER` in `Runner.xcodeproj/project.pbxproj` exactly (checked both the `Runner` and `RunnerTests` targets, all build configs). `Podfile`/`Podfile.lock` are both present. Xcode 26.1.1 and CocoaPods are installed on this machine. **`flutter build ios --simulator --no-codesign` was run this session and completed successfully** — confirming the project actually compiles and links against the real Firebase config, not just that the files look superficially correct. (No iOS Simulator runtime is installed on this machine — `xcrun simctl list devices` returns none — so a live on-device/simulator run of the app itself was not performed; only the build.)
-- **REQUIRED FOR PRODUCTION:** A code-signing identity + provisioning profile (or App Store Connect API key for CI) to produce a distributable/TestFlight build; an Apple Developer Program enrollment tied to the bundle ID above.
-- **ACTUAL GAP:** No signing identity configured in this environment (expected — that's a per-developer/CI credential, not something to fabricate or discover from the repo). Otherwise, the iOS side is in materially better shape than the Android side was before Phase 19 — no structural build issues found.
-- **PRIORITY:** P1 (signing is required for any real distribution, but the hard part — "does this project even compile against real config" — is now verified working)
-- **RECOMMENDED FIX:** User action: open the project in Xcode, sign in with an Apple ID enrolled in the Developer Program, let Xcode manage signing (or configure manual signing/CI with a distribution certificate), and archive. No code changes needed on the current evidence.
+- **CURRENT STATE (verified this session, not merely carried over from a prior report):** `ios/Runner/GoogleService-Info.plist` exists and is a real (non-placeholder) file — `PROJECT_ID: navdeep-college-app`, `BUNDLE_ID: com.navdeep.collegeapp.collegeApp`. This bundle ID matches `PRODUCT_BUNDLE_IDENTIFIER` in `Runner.xcodeproj/project.pbxproj` exactly (checked both the `Runner` and `RunnerTests` targets, all build configs). `Podfile`/`Podfile.lock` are both present. Xcode 26.1.1 and CocoaPods are installed on this machine. `flutter build ios --simulator --no-codesign` was run this session: **`pod install` completed successfully (232.8s)** — this is the meaningful signal, since it means CocoaPods actually resolved and linked every native dependency (Firebase, Supabase, camera, image_picker, etc.) against the real project with no version-conflict or missing-pod errors, the iOS-side equivalent of the Android Gradle issues Phase 19 had to fix. The subsequent `xcodebuild` step then failed — but for an environment reason, not a project defect: `xcrun simctl list runtimes` returns **zero installed runtimes** on this machine (the iOS Simulator SDK/toolchain is present, but no actual simulator device image has been downloaded), so there was no valid build destination. Downloading a multi-GB simulator runtime unprompted was judged out of scope for an autonomous overnight pass; a full compile+link verification (not just dependency resolution) was therefore **not completed** this session, and that gap should not be papered over.
+- **REQUIRED FOR PRODUCTION:** A code-signing identity + provisioning profile (or App Store Connect API key for CI) to produce a distributable/TestFlight build; an Apple Developer Program enrollment tied to the bundle ID above; and, separately, a genuine `xcodebuild` compile pass (either via an installed simulator runtime or the paired physical device visible to `xcrun xctrace list devices` — "Navdeep's MacBook Air"'s paired iPhone, currently offline) before this is called fully verified.
+- **ACTUAL GAP:** No signing identity configured in this environment (expected — that's a per-developer/CI credential, not something to fabricate or discover from the repo). Additionally, unlike the Android side (where Phase 19 confirmed a full compile), the iOS side has only had its CocoaPods dependency graph verified this session, not a full Swift/Objective-C compile+link — a lower but non-zero bar than "confirmed building."
+- **PRIORITY:** P1 (signing is required for any real distribution); P2 to actually complete a real compile pass and close this verification gap.
+- **RECOMMENDED FIX:** User action: (1) install an iOS Simulator runtime via Xcode → Settings → Components (or run `xcodebuild -downloadPlatform iOS`) and re-run `flutter build ios --simulator --no-codesign` to get a genuine compile verification; or (2) connect the already-paired physical iPhone and build for it directly. Then, for distribution: sign in to Xcode with an Apple ID enrolled in the Developer Program, let Xcode manage signing (or configure manual signing/CI with a distribution certificate), and archive.
 
 ## 13. Testing Requirements
 
@@ -254,7 +254,7 @@ Every `match` block in `firestore.rules` (20 total) was read in full and checked
 Minimum bar to let real users onto the app (in priority order):
 1. **P0 — Android:** real `google-services.json` (§11) — the app cannot start on Android without it.
 2. **P0 — Backend:** the `club_members.read` fix (§10) is committed locally; needs eventual push+deploy of `firestore.rules` for the fix to take effect for real users.
-3. **P1 — iOS:** a real signing identity for distribution (§12) — build itself already verified working.
+3. **P1/P2 — iOS:** a real signing identity for distribution, and completing a genuine `xcodebuild` compile pass (currently only CocoaPods dependency resolution is verified — §12).
 4. **P1 — Android:** release keystore + `key.properties` for Play Store (§11).
 5. **P1 — Observability:** crash reporting at minimum (§14), so post-launch issues surface without relying on user reports.
 6. **P1 — Events:** either ship a read path or pull the dead-end create entry point (§5a).
@@ -283,7 +283,7 @@ Lower-priority items that don't block any launch tier but are worth tracking:
 - [x] Android build structurally fixed (Phase 19)
 - [x] `users.read` bootstrap bug fixed and live-verified (Phase 20)
 - [x] Systematic rules sweep for the same bug class — one more instance found and fixed (`club_members.read`, Phase 21, this session)
-- [x] iOS build config verified with a real compile (this session — new)
+- [x] iOS dependency graph (CocoaPods) verified real this session; full compile still pending (no simulator runtime installed — see §12)
 - [ ] Real `android/app/google-services.json` in place (user action required)
 - [ ] Real Android release keystore + `key.properties` (user action required)
 - [ ] iOS signing identity configured for distribution (user action required)
