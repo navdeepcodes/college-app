@@ -61,7 +61,13 @@ function isOwnCollegeRoom(chatId) {
       // USERS
       // =========================
       match /users/{userId} {
-        allow read: if isSignedIn();
+        // College-isolated directory. A profile is readable only by members of
+        // the SAME college (the search screen's `where('collegeId')` query) and
+        // by the platform admin (bootstrap/oversight). An unfiltered users query
+        // is now rejected at the database boundary, closing the global profile
+        // enumeration previously possible from search/start-conversation.
+        allow read: if isSignedIn()
+          && (resource.data.collegeId == userCollege() || isAdmin());
 
         allow create: if isSignedIn()
           && isOwner(userId)
