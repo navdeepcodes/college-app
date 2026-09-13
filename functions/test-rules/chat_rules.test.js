@@ -5,7 +5,11 @@
  * Covers: membership-scoped reads; canonical sorted 2-member chat create;
  * immutable messages with sender-auth; recipient-only status transitions;
  * friendship edge privacy; friend-request sender/recipient scoping;
- * club-chat membership gating via club_members/{clubId}_{uid}.
+ * club-chat membership gating via club_members/{clubId}_{uid}; the
+ * club_chats/{clubId} parent doc (Phase 18 — previously had no rule block
+ * at all); and the friends.create consent check tying a friendship to a
+ * still-pending friend_requests doc (Phase 18 — previously any client
+ * could mint a friendship with an arbitrary uid unilaterally).
  */
 const { initializeTestEnvironment, assertFails, assertSucceeds } =
   require('@firebase/rules-unit-testing');
@@ -105,10 +109,25 @@ async function main() {
     });
 
     // A friendship and a pending friend request.
-    await setDoc(doc(db, 'friends', 'f1'), { members: [NMIT, RVCE] });
+    await setDoc(doc(db, 'friends', 'f1'), { members: [NMIT, RVCE], sourceRequestId: 'r0' });
+    await setDoc(doc(db, 'friend_requests', 'r0'), {
+      fromUid: NMIT, toUid: RVCE, status: 'pending',
+    });
     await setDoc(doc(db, 'friend_requests', 'r1'), {
       fromUid: NMIT, toUid: RVCE, status: 'pending',
     });
+    // For the friends.create consent-check tests below.
+    await setDoc(doc(db, 'friend_requests', 'r2'), {
+      fromUid: RVCE, toUid: TMIT, status: 'pending',
+    });
+    await setDoc(doc(db, 'friend_requests', 'r-accepted'), {
+      fromUid: NMIT, toUid: TMIT, status: 'accepted',
+    });
+    // Simulates a request already consumed by a prior accept (deleted).
+    await setDoc(doc(db, 'friend_requests', 'r-used'), {
+      fromUid: NMIT, toUid: TMIT, status: 'pending',
+    });
+    await deleteDoc(doc(db, 'friend_requests', 'r-used'));
 
     // A club with NMIT + RVCE as members (club_members doc ids: {clubId}_{uid}).
     await setDoc(doc(db, 'clubs', 'club1'), {
@@ -205,71 +224,126 @@ async function main() {
     assertSucceeds(getDoc(friendRef(n, 'f1'))));
   await test('25 non-member reads friend edge denied', () =>
     assertFails(getDoc(friendRef(t, 'f1'))));
-  await test('26 create friendship with me allowed', () =>
-    assertSucceeds(setDoc(doc(n, 'friends', 'nf'), {
+
+  // Consent check (Phase 18): a friends doc must reference a still-pending
+  // friend_requests doc naming exactly these two members — closes a hole
+  // where any authenticated user could mint a "friendship" with an
+  // arbitrary victim uid (discoverable via search) with no consent at all,
+  // which also inflated the victim's friendsCount via the friendCreated
+  // Cloud Function trigger.
+  await test('26 create friendship via valid pending request allowed', () =>
+    assertSucceeds(setDoc(doc(r, 'friends', 'rt'), {
+      members: [RVCE, TMIT], sourceRequestId: 'r2', createdAt: serverTimestamp(),
+    })));
+  await test('27 create friendship with no sourceRequestId denied', () =>
+    assertFails(setDoc(doc(n, 'friends', 'nf'), {
       members: [NMIT, RVCE], createdAt: serverTimestamp(),
     })));
-  await test('27 create friendship without me denied', () =>
+  await test('28 create friendship without me denied', () =>
     // members exclude the acting user (TMIT) entirely -> must be rejected
     assertFails(setDoc(doc(t, 'friends', 'tf'), {
-      members: [NMIT, RVCE], createdAt: serverTimestamp(),
+      members: [NMIT, RVCE], sourceRequestId: 'r1', createdAt: serverTimestamp(),
     })));
-  await test('28 self-pair friendship denied', () =>
+  await test('29 self-pair friendship denied', () =>
     assertFails(setDoc(doc(n, 'friends', 'sf'), {
-      members: [NMIT, NMIT], createdAt: serverTimestamp(),
+      members: [NMIT, NMIT], sourceRequestId: 'r1', createdAt: serverTimestamp(),
     })));
-  await test('29 friend edge immutable', () =>
+  await test('30 sourceRequestId naming unrelated members denied', () =>
+    // r1 is NMIT->RVCE; claiming members [NMIT, TMIT] doesn't match it.
+    assertFails(setDoc(doc(n, 'friends', 'mismatched'), {
+      members: [NMIT, TMIT], sourceRequestId: 'r1', createdAt: serverTimestamp(),
+    })));
+  await test('31 sourceRequestId pointing at a non-pending request denied', () =>
+    assertFails(setDoc(doc(n, 'friends', 'notpending'), {
+      members: [NMIT, TMIT], sourceRequestId: 'r-accepted', createdAt: serverTimestamp(),
+    })));
+  await test('32 sourceRequestId pointing at a deleted/consumed request denied', () =>
+    // Guards against replaying an already-accepted request to mint a
+    // second friends doc after the original request was deleted.
+    assertFails(setDoc(doc(n, 'friends', 'replayed'), {
+      members: [NMIT, TMIT], sourceRequestId: 'r-used', createdAt: serverTimestamp(),
+    })));
+  await test('33 sourceRequestId pointing at a nonexistent request denied', () =>
+    assertFails(setDoc(doc(n, 'friends', 'bogus'), {
+      members: [NMIT, TMIT], sourceRequestId: 'no-such-request', createdAt: serverTimestamp(),
+    })));
+  await test('34 friend edge immutable', () =>
     assertFails(updateDoc(friendRef(n, 'f1'), { members: [NMIT, TMIT] })));
 
   console.log('\n== Friend requests ==');
 
   const reqRef = (db, id) => doc(db, 'friend_requests', id);
-  await test('30 sender reads own request allowed', () =>
+  await test('35 sender reads own request allowed', () =>
     assertSucceeds(getDoc(reqRef(n, 'r1'))));
-  await test('31 recipient reads request allowed', () =>
+  await test('36 recipient reads request allowed', () =>
     assertSucceeds(getDoc(reqRef(r, 'r1'))));
-  await test('32 third party reads request denied', () =>
+  await test('37 third party reads request denied', () =>
     assertFails(getDoc(reqRef(t, 'r1'))));
-  await test('33 create pending request allowed', () =>
+  await test('38 create pending request allowed', () =>
     assertSucceeds(addDoc(collection(n, 'friend_requests'), {
       fromUid: NMIT, toUid: TMIT, status: 'pending',
       createdAt: serverTimestamp(),
     })));
-  await test('34 request to self denied', () =>
+  await test('39 request to self denied', () =>
     assertFails(addDoc(collection(n, 'friend_requests'), {
       fromUid: NMIT, toUid: NMIT, status: 'pending',
     })));
-  await test('35 forged pending status denied', () =>
+  await test('40 forged pending status denied', () =>
     assertFails(addDoc(collection(n, 'friend_requests'), {
       fromUid: NMIT, toUid: TMIT, status: 'accepted',
     })));
-  await test('36 recipient updates status allowed', () =>
+  await test('41 recipient updates status allowed', () =>
     assertSucceeds(updateDoc(reqRef(r, 'r1'), { status: 'accepted' })));
-  await test('37 sender updates status denied', () =>
+  await test('42 sender updates status denied', () =>
     assertFails(updateDoc(reqRef(n, 'r1'), { status: 'declined' })));
-  await test('38 recipient deletes request allowed', () =>
+  await test('43 recipient deletes request allowed', () =>
     assertSucceeds(deleteDoc(reqRef(r, 'r1'))));
 
   console.log('\n== Club chats ==');
 
+  // Parent doc (club_chats/{clubId} itself, not just its messages
+  // subcollection) — was previously MISSING a rule block entirely, so every
+  // access fell to Firestore's default deny. club_chat_screen.dart's
+  // "ensure chat doc exists" bootstrap called .get() on this path before
+  // ever rendering the screen, so this made club chat permanently stuck on
+  // a loading spinner for every club, every time it was opened.
+  const clubChatRoot = (db) => doc(db, 'club_chats', 'club1');
+  await test('44 club member reads club_chats parent doc allowed', () =>
+    assertSucceeds(getDoc(clubChatRoot(n))));
+  await test('45 non-member reads club_chats parent doc denied', () =>
+    assertFails(getDoc(clubChatRoot(t))));
+  await test('46 club member creates club_chats parent doc (first open) allowed', () =>
+    // club1's parent doc is deliberately NOT pre-seeded (only its messages
+    // subcollection is) — this is exactly club_chat_screen.dart's real
+    // first-open bootstrap path. RVCE is a genuine club1 member.
+    assertSucceeds(setDoc(clubChatRoot(r), {
+      clubId: 'club1', createdAt: serverTimestamp(),
+    })));
+  await test('47 non-member cannot create a club_chats parent doc', () =>
+    assertFails(setDoc(doc(t, 'club_chats', 'club-nonmember'), {
+      clubId: 'club-nonmember', createdAt: serverTimestamp(),
+    })));
+  await test('48 club_chats parent doc immutable', () =>
+    assertFails(updateDoc(clubChatRoot(n), { clubId: 'hacked' })));
+
   const clubMsgs = (db) => collection(db, 'club_chats', 'club1', 'messages');
-  await test('39 club member reads club chat allowed', () =>
+  await test('49 club member reads club chat allowed', () =>
     assertSucceeds(getDoc(doc(n, 'club_chats', 'club1', 'messages', 'cm1'))));
-  await test('40 non-member reads club chat denied', () =>
+  await test('50 non-member reads club chat denied', () =>
     assertFails(getDoc(doc(t, 'club_chats', 'club1', 'messages', 'cm1'))));
-  await test('41 member sends club message allowed', () =>
+  await test('51 member sends club message allowed', () =>
     assertSucceeds(addDoc(clubMsgs(n), {
       userId: NMIT, text: 'anyone here?', createdAt: serverTimestamp(),
     })));
-  await test('42 non-member sends club message denied', () =>
+  await test('52 non-member sends club message denied', () =>
     assertFails(addDoc(clubMsgs(t), {
       userId: TMIT, text: 'spam', createdAt: serverTimestamp(),
     })));
-  await test('43 forged club message userId denied', () =>
+  await test('53 forged club message userId denied', () =>
     assertFails(addDoc(clubMsgs(n), {
       userId: RVCE, text: 'spoofed', createdAt: serverTimestamp(),
     })));
-  await test('44 blank club message denied', () =>
+  await test('54 blank club message denied', () =>
     assertFails(addDoc(clubMsgs(n), {
       userId: NMIT, text: '  ', createdAt: serverTimestamp(),
     })));

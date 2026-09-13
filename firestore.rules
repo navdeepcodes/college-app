@@ -348,11 +348,28 @@ function isOwnCollegeRoom(chatId) {
         // Mutual two-person edge: the actor is one member, the other differs.
         // friendsCount counters are bumped server-side (friendCreated Cloud
         // Function) so no client writes a peer's users doc.
+        //
+        // Consent check: without this, any authenticated user could mint a
+        // `friends` doc naming an arbitrary victim uid (discoverable via
+        // search) — a unilateral, non-consensual "friendship" that also
+        // inflates the victim's friendsCount via the Cloud Function trigger.
+        // sourceRequestId must point at a still-pending friend_requests doc
+        // between exactly these two members; FriendService creates the
+        // friends doc BEFORE deleting that request (see friend_service.dart)
+        // so this get() observes it. A deleted/consumed request can't be
+        // replayed: exists() is false and the whole clause short-circuits.
         allow create: if isSignedIn()
           && request.resource.data.members is list
           && request.resource.data.members.size() == 2
           && request.resource.data.members.hasAll([request.auth.uid])
-          && request.resource.data.members[0] != request.resource.data.members[1];
+          && request.resource.data.members[0] != request.resource.data.members[1]
+          && request.resource.data.sourceRequestId is string
+          && exists(/databases/$(database)/documents/friend_requests/$(request.resource.data.sourceRequestId))
+          && get(/databases/$(database)/documents/friend_requests/$(request.resource.data.sourceRequestId)).data.status == 'pending'
+          && get(/databases/$(database)/documents/friend_requests/$(request.resource.data.sourceRequestId)).data.fromUid in request.resource.data.members
+          && get(/databases/$(database)/documents/friend_requests/$(request.resource.data.sourceRequestId)).data.toUid in request.resource.data.members
+          && get(/databases/$(database)/documents/friend_requests/$(request.resource.data.sourceRequestId)).data.fromUid
+              != get(/databases/$(database)/documents/friend_requests/$(request.resource.data.sourceRequestId)).data.toUid;
 
         allow update: if false;
 
@@ -398,6 +415,22 @@ function isOwnCollegeRoom(chatId) {
         );
       }
 
+      // The parent doc itself (club_chat_screen.dart's "ensure chat doc
+      // exists" bootstrap, :38-49). This was MISSING entirely — with no
+      // match block, every access fell to Firestore's default deny, so
+      // _init()'s first .get() always threw permission-denied before
+      // setState() ever ran. Since build() gates on the (never-set) _uid
+      // field, this made club chat permanently stuck on a loading spinner
+      // for every club, every time — not an edge case, a total feature
+      // outage.
+      match /club_chats/{clubId} {
+        allow read: if isSignedIn() && isClubMember(clubId);
+        allow create: if isSignedIn()
+          && isClubMember(clubId)
+          && request.resource.data.clubId == clubId;
+        allow update, delete: if false;
+      }
+
       match /club_chats/{clubId}/messages/{messageId} {
         allow read: if isSignedIn() && isClubMember(clubId);
 
@@ -417,18 +450,19 @@ function isOwnCollegeRoom(chatId) {
       match /clubs/{clubId} {
         allow read: if true;
 
+        // Clubs are created ONLY through the reviewed club_requests flow:
+        // the platform admin bootstraps the doc on behalf of an approved
+        // requester (admin_club_requests_screen._approve). There is no
+        // client-facing self-service creation path — an earlier version of
+        // this rule allowed `admins == [auth.uid]` unconditionally, which let
+        // any authenticated user mint themselves a club (with real club_chats
+        // and clubs/{id}/posts write access) without ever going through
+        // ID-card review. That branch is intentionally removed.
         allow create: if isSignedIn()
-          && (
-            // self-creation: the creator is the sole initial admin
-            request.resource.data.admins == [request.auth.uid]
-            ||
-            // platform-admin bootstrap on behalf of an approved requester
-            // (admin_club_requests_screen._approve): the club is owned by the
-            // requester, created by the admin
-            (isAdmin()
-             && request.resource.data.ownerUid is string
-             && request.resource.data.ownerUid != request.auth.uid)
-          );
+          && isAdmin()
+          && request.resource.data.ownerUid is string
+          && request.resource.data.ownerUid != request.auth.uid
+          && request.resource.data.admins == [request.resource.data.ownerUid];
 
         allow update, delete: if isSignedIn()
           && resource.data.admins.hasAny([request.auth.uid]);

@@ -91,6 +91,7 @@ class _UserBootstrap extends StatefulWidget {
 
 class _UserBootstrapState extends State<_UserBootstrap> {
   bool? _profileCompleted;
+  bool _failed = false;
 
   @override
   void initState() {
@@ -99,6 +100,8 @@ class _UserBootstrapState extends State<_UserBootstrap> {
   }
 
   Future<void> _bootstrap() async {
+    setState(() => _failed = false);
+
     try {
       final ref =
       FirebaseFirestore.instance.collection('users').doc(widget.user.uid);
@@ -133,14 +136,24 @@ class _UserBootstrapState extends State<_UserBootstrap> {
     } catch (e) {
       debugPrint('Auth bootstrap error: $e');
 
+      // A transient network/backend failure here is NOT the same as "this
+      // user hasn't completed onboarding yet" — collapsing them used to
+      // silently route an existing, fully-onboarded user back into
+      // ProfileSetupPage on any blip (dropped connection, permission hiccup
+      // on cold start). Show a retry screen instead so the distinction is
+      // visible and recoverable.
       if (mounted) {
-        setState(() => _profileCompleted = false);
+        setState(() => _failed = true);
       }
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_failed) {
+      return _BootstrapError(onRetry: _bootstrap);
+    }
+
     if (_profileCompleted == null) {
       return const _Loading();
     }
@@ -148,6 +161,47 @@ class _UserBootstrapState extends State<_UserBootstrap> {
     return _profileCompleted!
         ? const BottomNavShell()
         : const ProfileSetupPage();
+  }
+}
+
+class _BootstrapError extends StatelessWidget {
+  final VoidCallback onRetry;
+  const _BootstrapError({required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.cloud_off, color: Colors.white54, size: 40),
+              const SizedBox(height: 16),
+              const Text(
+                "Couldn't reach the server. Check your connection and try again.",
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.white70),
+              ),
+              const SizedBox(height: 20),
+              ElevatedButton(
+                onPressed: onRetry,
+                child: const Text('Retry'),
+              ),
+              TextButton(
+                onPressed: () => FirebaseAuth.instance.signOut(),
+                child: const Text(
+                  'Sign out',
+                  style: TextStyle(color: Colors.white54),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 

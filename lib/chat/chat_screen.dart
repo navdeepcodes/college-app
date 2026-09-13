@@ -20,6 +20,7 @@ class _ChatScreenState extends State<ChatScreen> {
   final TextEditingController _controller = TextEditingController();
   final String _currentUid = FirebaseAuth.instance.currentUser!.uid;
   late final String _chatId;
+  late final Future<void> _ready;
 
   @override
   void initState() {
@@ -28,8 +29,13 @@ class _ChatScreenState extends State<ChatScreen> {
     final ids = [_currentUid, widget.peerUid]..sort();
     _chatId = ids.join('_');
 
-    _ensureChatExists();
-    _markDelivered();
+    // The messages stream (and _markDelivered's query) both require
+    // isChatMember(chatId) in firestore.rules, which reads the chat doc
+    // itself — so they can't safely start until the chat doc is known to
+    // exist. Sequenced (not fire-and-forget) so the UI can show a loading
+    // state instead of racing a permission-denied error on a brand new
+    // conversation.
+    _ready = _ensureChatExists().then((_) => _markDelivered());
   }
 
   @override
@@ -40,15 +46,40 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _ensureChatExists() async {
     final ref = FirebaseFirestore.instance.collection('chats').doc(_chatId);
-    final snap = await ref.get();
 
-    if (!snap.exists) {
+    bool exists = false;
+    try {
+      final snap = await ref.get();
+      exists = snap.exists;
+    } catch (_) {
+      // firestore.rules' isChatMember() reads the chat doc to check
+      // membership — for a doc that doesn't exist yet, that dereference
+      // throws rather than evaluating to "not a member", so .get() on a
+      // brand new chat always raises permission-denied instead of
+      // returning exists:false. Since _chatId is always derived from our
+      // OWN uid + the peer, the only realistic cause here is "doesn't
+      // exist yet" — treat any failure as that.
+      exists = false;
+    }
+
+    if (exists) return;
+
+    // members must be in the same sorted order as _chatId/ids: the
+    // firestore.rules chats.create rule requires members[0] < members[1].
+    // Writing the unsorted [_currentUid, peerUid] pair here made chat
+    // creation permission-denied for roughly half of all user pairs
+    // (whenever _currentUid sorted after peerUid).
+    final ids = [_currentUid, widget.peerUid]..sort();
+    try {
       await ref.set({
-        'members': [_currentUid, widget.peerUid],
+        'members': ids,
         'createdAt': FieldValue.serverTimestamp(),
         'lastMessage': '',
         'lastMessageAt': FieldValue.serverTimestamp(),
       });
+    } catch (_) {
+      // Lost a create race to the peer opening this same chat at the same
+      // moment — the doc now exists with the same shape either way.
     }
   }
 
@@ -61,9 +92,12 @@ class _ChatScreenState extends State<ChatScreen> {
         .where('status', isEqualTo: 'sent')
         .get();
 
+    if (snap.docs.isEmpty) return;
+    final batch = FirebaseFirestore.instance.batch();
     for (final d in snap.docs) {
-      d.reference.update({'status': 'delivered'});
+      batch.update(d.reference, {'status': 'delivered'});
     }
+    await batch.commit();
   }
 
   Future<void> _markSeen() async {
@@ -75,9 +109,12 @@ class _ChatScreenState extends State<ChatScreen> {
         .where('status', isEqualTo: 'delivered')
         .get();
 
+    if (snap.docs.isEmpty) return;
+    final batch = FirebaseFirestore.instance.batch();
     for (final d in snap.docs) {
-      d.reference.update({'status': 'seen'});
+      batch.update(d.reference, {'status': 'seen'});
     }
+    await batch.commit();
   }
 
   Future<void> _sendMessage() async {
@@ -123,7 +160,7 @@ class _ChatScreenState extends State<ChatScreen> {
               .doc(widget.peerUid)
               .snapshots(),
           builder: (_, snap) {
-            if (!snap.hasData) return const SizedBox();
+            if (!snap.hasData || !snap.data!.exists) return const SizedBox();
             final u = snap.data!.data() as Map<String, dynamic>;
 
             return Row(
@@ -143,7 +180,21 @@ class _ChatScreenState extends State<ChatScreen> {
           },
         ),
       ),
-      body: Column(
+      body: FutureBuilder<void>(
+        future: _ready,
+        builder: (context, readySnap) {
+          if (readySnap.connectionState != ConnectionState.done) {
+            return const Center(child: CircularProgressIndicator());
+          }
+
+          return _buildChatBody(context);
+        },
+      ),
+    );
+  }
+
+  Widget _buildChatBody(BuildContext context) {
+    return Column(
         children: [
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
@@ -152,16 +203,33 @@ class _ChatScreenState extends State<ChatScreen> {
                   .doc(_chatId)
                   .collection('messages')
                   .orderBy('createdAt', descending: true)
+                  .limit(50)
                   .snapshots(),
               builder: (_, snap) {
+                if (snap.hasError) {
+                  return const Center(
+                    child: Text('Failed to load messages'),
+                  );
+                }
+
                 if (!snap.hasData) {
                   return const Center(child: CircularProgressIndicator());
                 }
 
                 final msgs = snap.data!.docs;
 
-                WidgetsBinding.instance
-                    .addPostFrameCallback((_) => _markSeen());
+                // Only worth a _markSeen() round-trip when this snapshot
+                // actually contains something the peer would want marked —
+                // avoids a redundant query+writes on every unrelated rebuild
+                // (e.g. our own optimistic send).
+                final hasUnseen = msgs.any((m) {
+                  final d = m.data() as Map<String, dynamic>;
+                  return d['toUid'] == _currentUid && d['status'] == 'delivered';
+                });
+                if (hasUnseen) {
+                  WidgetsBinding.instance
+                      .addPostFrameCallback((_) => _markSeen());
+                }
 
                 if (msgs.isEmpty) {
                   return const Center(child: Text('Say hi 👋'));
@@ -186,8 +254,7 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
           _InputBar(onSend: _sendMessage, controller: _controller),
         ],
-      ),
-    );
+      );
   }
 }
 

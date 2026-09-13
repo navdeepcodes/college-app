@@ -202,11 +202,22 @@ async function main() {
     assertSucceeds(clubDoc(a)));
   await test('c2 non-admin cannot create club for another user', () =>
     assertFails(clubDoc(o)));
-  await test('c3 user creates own club (admins=[self]) allowed', () =>
-    assertSucceeds(addDoc(collection(r, 'clubs'), {
+  // Was previously allowed unconditionally (`admins == [auth.uid]` needed no
+  // isAdmin() check) — any authenticated user could self-create a club and
+  // bypass the entire club_requests/ID-card review flow. Closed in Phase 18;
+  // clubs.create now requires isAdmin(), full stop.
+  await test('c3 self-service club creation (bypassing admin review) denied', () =>
+    assertFails(addDoc(collection(r, 'clubs'), {
       name: 'Own Club',
       ownerUid: REQUESTER,
       admins: [REQUESTER],
+      membersCount: 1,
+    })));
+  await test('c4 admin cannot self-own the bootstrapped club', () =>
+    assertFails(addDoc(collection(a, 'clubs'), {
+      name: 'Admin-owned Club',
+      ownerUid: ADMIN,
+      admins: [ADMIN],
       membersCount: 1,
     })));
 

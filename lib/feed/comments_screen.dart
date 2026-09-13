@@ -38,16 +38,20 @@ class _CommentsScreenState extends State<CommentsScreen> {
       final uid = FirebaseAuth.instance.currentUser!.uid;
       final postRef =
       FirebaseFirestore.instance.collection('posts').doc(widget.postId);
+      final commentRef = postRef.collection('comments').doc();
 
-      await postRef.collection('comments').add({
+      // Batched so a dropped connection between the two writes can't leave
+      // commentsCount permanently undercounting the actual comment docs.
+      final batch = FirebaseFirestore.instance.batch();
+      batch.set(commentRef, {
         'userId': uid,
         'text': filterResult.cleanedText,
         'createdAt': FieldValue.serverTimestamp(),
       });
-
-      await postRef.update({
+      batch.update(postRef, {
         'commentsCount': FieldValue.increment(1),
       });
+      await batch.commit();
 
       _controller.clear();
     } catch (_) {
@@ -84,8 +88,18 @@ class _CommentsScreenState extends State<CommentsScreen> {
                   .doc(widget.postId)
                   .collection('comments')
                   .orderBy('createdAt', descending: true)
+                  .limit(200)
                   .snapshots(),
               builder: (context, snap) {
+                if (snap.hasError) {
+                  return const Center(
+                    child: Text(
+                      'Failed to load comments',
+                      style: TextStyle(color: Colors.white70),
+                    ),
+                  );
+                }
+
                 if (!snap.hasData) {
                   return const Center(
                     child: CircularProgressIndicator(),
@@ -191,7 +205,9 @@ class _CommentTile extends StatelessWidget {
           .doc(userId)
           .get(),
       builder: (context, snap) {
-        if (!snap.hasData) return const SizedBox.shrink();
+        if (!snap.hasData || !snap.data!.exists) {
+          return const SizedBox.shrink();
+        }
 
         final user = snap.data!.data() as Map<String, dynamic>;
         final name = user['name'] ?? 'User';

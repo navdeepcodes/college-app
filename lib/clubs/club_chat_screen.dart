@@ -22,6 +22,7 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
   final TextEditingController _controller = TextEditingController();
   bool _sending = false;
   String? _uid;
+  bool _initFailed = false;
 
   @override
   void initState() {
@@ -40,12 +41,18 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
         .collection('club_chats')
         .doc(widget.clubId);
 
-    final snap = await chatRef.get();
-    if (!snap.exists) {
-      await chatRef.set({
-        'clubId': widget.clubId,
-        'createdAt': FieldValue.serverTimestamp(),
-      });
+    try {
+      final snap = await chatRef.get();
+      if (!snap.exists) {
+        await chatRef.set({
+          'clubId': widget.clubId,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+      }
+    } catch (e) {
+      debugPrint('Club chat init failed: $e');
+      if (mounted) setState(() => _initFailed = true);
+      return;
     }
 
     if (mounted) setState(() {});
@@ -84,6 +91,31 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (_initFailed) {
+      return Scaffold(
+        appBar: AppBar(title: Text(widget.clubName)),
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                "Couldn't open this chat. Check your connection.",
+                style: TextStyle(color: Colors.white70),
+              ),
+              const SizedBox(height: 12),
+              ElevatedButton(
+                onPressed: () {
+                  setState(() => _initFailed = false);
+                  _init();
+                },
+                child: const Text('Retry'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     if (_uid == null) {
       return const Scaffold(
         body: Center(child: CircularProgressIndicator()),
@@ -108,6 +140,15 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
                   .limit(100)
                   .snapshots(),
               builder: (context, snap) {
+                if (snap.hasError) {
+                  return const Center(
+                    child: Text(
+                      'Failed to load messages',
+                      style: TextStyle(color: Colors.white54),
+                    ),
+                  );
+                }
+
                 if (!snap.hasData) {
                   return const Center(
                     child: CircularProgressIndicator(),

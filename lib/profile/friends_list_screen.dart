@@ -17,8 +17,13 @@ class FriendsListScreen extends StatelessWidget {
         stream: FirebaseFirestore.instance
             .collection('friends')
             .where('members', arrayContains: userId)
+            .limit(500)
             .snapshots(),
         builder: (context, snap) {
+          if (snap.hasError) {
+            return const Center(child: Text('Failed to load friends'));
+          }
+
           if (!snap.hasData) {
             return const Center(child: CircularProgressIndicator());
           }
@@ -45,7 +50,9 @@ class FriendsListScreen extends StatelessWidget {
                     .doc(friendUid)
                     .snapshots(),
                 builder: (context, userSnap) {
-                  if (!userSnap.hasData) {
+                  if (!userSnap.hasData || !userSnap.data!.exists) {
+                    // Deleted/unavailable account — skip the row rather than
+                    // crash on the null-cast below.
                     return const SizedBox.shrink();
                   }
 

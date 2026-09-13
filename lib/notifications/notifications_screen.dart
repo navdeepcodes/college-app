@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import '../clubs/admin_club_requests_screen.dart';
+import '../services/friend_service.dart';
 
 class NotificationsScreen extends StatelessWidget {
   const NotificationsScreen({super.key});
@@ -41,6 +42,7 @@ class NotificationsScreen extends StatelessWidget {
             .collection('notifications')
             .where('toUid', isEqualTo: uid)
             .orderBy('createdAt', descending: true)
+            .limit(100)
             .snapshots(),
         builder: (context, snap) {
           if (snap.hasError) {
@@ -76,9 +78,11 @@ class NotificationsScreen extends StatelessWidget {
               final data = docs[i].data() as Map<String, dynamic>;
 
               if (data['type'] == 'friend_request' &&
-                  data['fromUid'] != null) {
+                  data['fromUid'] != null &&
+                  data['requestId'] != null) {
                 return _FriendRequestTile(
                   notificationId: docs[i].id,
+                  requestId: data['requestId'],
                   fromUid: data['fromUid'],
                 );
               }
@@ -181,19 +185,55 @@ class _ClubRequestTile extends StatelessWidget {
 // FRIEND REQUEST TILE
 // =====================================================
 
-class _FriendRequestTile extends StatelessWidget {
+class _FriendRequestTile extends StatefulWidget {
   final String notificationId;
+  final String requestId;
   final String fromUid;
 
   const _FriendRequestTile({
     required this.notificationId,
+    required this.requestId,
     required this.fromUid,
   });
 
   @override
-  Widget build(BuildContext context) {
-    final myUid = FirebaseAuth.instance.currentUser!.uid;
+  State<_FriendRequestTile> createState() => _FriendRequestTileState();
+}
 
+class _FriendRequestTileState extends State<_FriendRequestTile> {
+  bool _busy = false;
+
+  Future<void> _respond(bool accept) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    final messenger = ScaffoldMessenger.of(context);
+
+    try {
+      final myUid = FirebaseAuth.instance.currentUser!.uid;
+      if (accept) {
+        await FriendService.acceptRequest(
+          requestId: widget.requestId,
+          fromUid: widget.fromUid,
+          toUid: myUid,
+        );
+      } else {
+        await FriendService.declineRequest(requestId: widget.requestId);
+      }
+    } catch (e) {
+      if (mounted) {
+        messenger.showSnackBar(
+          SnackBar(content: Text('Something went wrong: $e')),
+        );
+        setState(() => _busy = false);
+      }
+    }
+    // On success FriendService already deletes the notification doc (via
+    // _deleteRequestNotifications), so this tile disappears with the stream
+    // update — no need to reset _busy or delete it again here.
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Card(
       color: const Color(0xFF1E1E22),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
@@ -219,13 +259,8 @@ class _FriendRequestTile extends StatelessWidget {
                       foregroundColor: Colors.white70,
                       side: const BorderSide(color: Colors.white24),
                     ),
+                    onPressed: _busy ? null : () => _respond(false),
                     child: const Text('Reject'),
-                    onPressed: () async {
-                      await FirebaseFirestore.instance
-                          .collection('notifications')
-                          .doc(notificationId)
-                          .delete();
-                    },
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -234,20 +269,17 @@ class _FriendRequestTile extends StatelessWidget {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.deepPurple,
                     ),
-                    child: const Text('Accept'),
-                    onPressed: () async {
-                      await FirebaseFirestore.instance
-                          .collection('friends')
-                          .add({
-                        'members': [myUid, fromUid],
-                        'createdAt': FieldValue.serverTimestamp(),
-                      });
-
-                      await FirebaseFirestore.instance
-                          .collection('notifications')
-                          .doc(notificationId)
-                          .delete();
-                    },
+                    onPressed: _busy ? null : () => _respond(true),
+                    child: _busy
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white70,
+                            ),
+                          )
+                        : const Text('Accept'),
                   ),
                 ),
               ],
