@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class ClubJoinRequestsScreen extends StatelessWidget {
   final String clubId;
@@ -18,13 +18,11 @@ class ClubJoinRequestsScreen extends StatelessWidget {
         elevation: 0,
         title: const Text('Join Requests'),
       ),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('club_join_requests')
-            .where('clubId', isEqualTo: clubId)
-            .where('status', isEqualTo: 'pending')
-        // ❌ REMOVED orderBy → fixes buffering
-            .snapshots(),
+      body: StreamBuilder<List<Map<String, dynamic>>>(
+        stream: Supabase.instance.client
+            .from('club_join_requests')
+            .stream(primaryKey: ['id'])
+            .eq('club_id', clubId),
         builder: (context, snap) {
           if (snap.connectionState == ConnectionState.waiting) {
             return const Center(
@@ -32,21 +30,23 @@ class ClubJoinRequestsScreen extends StatelessWidget {
             );
           }
 
-          if (!snap.hasData || snap.data!.docs.isEmpty) {
+          final pending =
+              (snap.data ?? []).where((r) => r['status'] == 'pending').toList();
+
+          if (pending.isEmpty) {
             return const _EmptyState();
           }
 
           return ListView.builder(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
-            itemCount: snap.data!.docs.length,
+            itemCount: pending.length,
             itemBuilder: (context, index) {
-              final req = snap.data!.docs[index];
-              final data = req.data() as Map<String, dynamic>;
+              final data = pending[index];
 
               return _RequestCard(
-                requestId: req.id,
+                requestId: data['id'] as String,
                 clubId: clubId,
-                userId: data['userId'],
+                userId: data['user_id'] as String,
               );
             },
           );
@@ -55,10 +55,6 @@ class ClubJoinRequestsScreen extends StatelessWidget {
     );
   }
 }
-
-// =====================================================
-// EMPTY STATE
-// =====================================================
 
 class _EmptyState extends StatelessWidget {
   const _EmptyState();
@@ -81,10 +77,6 @@ class _EmptyState extends StatelessWidget {
   }
 }
 
-// =====================================================
-// REQUEST CARD
-// =====================================================
-
 class _RequestCard extends StatefulWidget {
   final String requestId;
   final String clubId;
@@ -104,23 +96,23 @@ class _RequestCardState extends State<_RequestCard> {
   bool _busy = false;
 
   String get requestId => widget.requestId;
-  String get clubId => widget.clubId;
   String get userId => widget.userId;
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<DocumentSnapshot>(
-      future:
-      FirebaseFirestore.instance.collection('users').doc(userId).get(),
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: Supabase.instance.client
+          .from('profiles')
+          .select()
+          .eq('id', userId)
+          .limit(1),
       builder: (context, userSnap) {
         if (!userSnap.hasData) {
           return const SizedBox(height: 80);
         }
 
-        if (!userSnap.data!.exists) return const SizedBox();
-        final user = userSnap.data!.data() as Map<String, dynamic>?;
-
-        if (user == null) return const SizedBox();
+        if (userSnap.data!.isEmpty) return const SizedBox();
+        final user = userSnap.data!.first;
 
         return Container(
           margin: const EdgeInsets.only(bottom: 14),
@@ -133,15 +125,14 @@ class _RequestCardState extends State<_RequestCard> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // USER INFO
               Row(
                 children: [
                   CircleAvatar(
                     radius: 22,
-                    backgroundImage: user['photoUrl'] != null
-                        ? NetworkImage(user['photoUrl'])
+                    backgroundImage: user['photo_url'] != null
+                        ? NetworkImage(user['photo_url'])
                         : null,
-                    child: user['photoUrl'] == null
+                    child: user['photo_url'] == null
                         ? const Icon(Icons.person, size: 20)
                         : null,
                   ),
@@ -170,10 +161,7 @@ class _RequestCardState extends State<_RequestCard> {
                   ),
                 ],
               ),
-
               const SizedBox(height: 16),
-
-              // ACTIONS
               Row(
                 children: [
                   Expanded(
@@ -197,42 +185,15 @@ class _RequestCardState extends State<_RequestCard> {
     );
   }
 
-  // =====================================================
-  // APPROVE
-  // =====================================================
-
   Future<void> _approve(BuildContext context) async {
     setState(() => _busy = true);
     final messenger = ScaffoldMessenger.of(context);
 
-    final firestore = FirebaseFirestore.instance;
-    final memberRef =
-        firestore.collection('club_members').doc('${clubId}_$userId');
-    final clubRef = firestore.collection('clubs').doc(clubId);
-    final requestRef =
-        firestore.collection('club_join_requests').doc(requestId);
-
     try {
-      // Transaction so a double-tap (or the request being approved/rejected
-      // from elsewhere concurrently) can't double-increment membersCount:
-      // it re-reads the request fresh and no-ops if it's already gone.
-      await firestore.runTransaction((txn) async {
-        final freshRequest = await txn.get(requestRef);
-        if (!freshRequest.exists) return;
-
-        txn.set(memberRef, {
-          'clubId': clubId,
-          'userId': userId,
-          'role': 'member',
-          'joinedAt': FieldValue.serverTimestamp(),
-        });
-
-        txn.update(clubRef, {
-          'membersCount': FieldValue.increment(1),
-        });
-
-        txn.delete(requestRef);
-      });
+      await Supabase.instance.client.rpc(
+        'approve_club_join_request',
+        params: {'p_request_id': requestId},
+      );
 
       messenger.showSnackBar(
         const SnackBar(content: Text('Member approved')),
@@ -244,19 +205,15 @@ class _RequestCardState extends State<_RequestCard> {
     }
   }
 
-  // =====================================================
-  // REJECT
-  // =====================================================
-
   Future<void> _reject(BuildContext context) async {
     setState(() => _busy = true);
     final messenger = ScaffoldMessenger.of(context);
 
     try {
-      await FirebaseFirestore.instance
-          .collection('club_join_requests')
-          .doc(requestId)
-          .delete();
+      await Supabase.instance.client
+          .from('club_join_requests')
+          .delete()
+          .eq('id', requestId);
 
       messenger.showSnackBar(
         const SnackBar(content: Text('Request rejected')),
@@ -268,10 +225,6 @@ class _RequestCardState extends State<_RequestCard> {
     }
   }
 }
-
-// =====================================================
-// BUTTONS
-// =====================================================
 
 class _ApproveButton extends StatelessWidget {
   final VoidCallback? onTap;

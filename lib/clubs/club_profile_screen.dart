@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'club_chat_screen.dart';
 import 'club_admin_dashboard_screen.dart';
@@ -15,7 +14,7 @@ class ClubProfileScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final uid = Supabase.instance.client.auth.currentUser?.id;
 
     if (uid == null) {
       return const Scaffold(
@@ -30,11 +29,12 @@ class ClubProfileScreen extends StatelessWidget {
         elevation: 0,
         title: const Text('Club'),
       ),
-      body: StreamBuilder<DocumentSnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('clubs')
-            .doc(clubId)
-            .snapshots(),
+      body: StreamBuilder<List<Map<String, dynamic>>>(
+        stream: Supabase.instance.client
+            .from('clubs')
+            .stream(primaryKey: ['id'])
+            .eq('id', clubId)
+            .limit(1),
         builder: (context, clubSnap) {
           if (clubSnap.hasError) {
             return const Center(child: Text('Failed to load club'));
@@ -44,16 +44,16 @@ class ClubProfileScreen extends StatelessWidget {
             return const Center(child: CircularProgressIndicator());
           }
 
-          if (!clubSnap.data!.exists) {
+          if (clubSnap.data!.isEmpty) {
             return const Center(child: Text('Club not found'));
           }
 
-          final club = clubSnap.data!.data() as Map<String, dynamic>;
+          final club = clubSnap.data!.first;
 
           final clubName = club['name'] ?? 'Club';
           final clubDesc = club['description'] ?? '';
-          final membersCount = club['membersCount'] ?? 1;
-          final photoUrl = club['photoUrl'];
+          final membersCount = club['members_count'] ?? 1;
+          final photoUrl = club['photo_url'];
 
           return ListView(
             padding: const EdgeInsets.fromLTRB(18, 14, 18, 36),
@@ -113,7 +113,7 @@ class _HeroHeader extends StatelessWidget {
             radius: 46,
             backgroundColor: Colors.black,
             backgroundImage:
-            photoUrl != null ? NetworkImage(photoUrl!) : null,
+                photoUrl != null ? NetworkImage(photoUrl!) : null,
             child: photoUrl == null
                 ? const Icon(Icons.groups, size: 42, color: Colors.white)
                 : null,
@@ -135,8 +135,7 @@ class _HeroHeader extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           Container(
-            padding:
-            const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
             decoration: BoxDecoration(
               color: Colors.black.withValues(alpha: 0.35),
               borderRadius: BorderRadius.circular(18),
@@ -157,8 +156,14 @@ class _HeroHeader extends StatelessWidget {
 }
 
 // =====================================================
-// ROLE ACTIONS (THIS IS THE FIX)
+// ROLE ACTIONS
 // =====================================================
+// The exact widget the Phase 21 club_members.read Firestore rules fix
+// (docs/production-readiness-blueprint.md) was about: for a club the
+// caller hasn't joined, this row genuinely doesn't exist most of the
+// time. In Postgres that's just an empty query result, not a thrown
+// permission error -- see docs/supabase-schema.md for why that whole
+// bug class cannot recur here.
 
 class _RoleActions extends StatelessWidget {
   final String clubId;
@@ -173,20 +178,20 @@ class _RoleActions extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<DocumentSnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('club_members')
-          .doc('${clubId}_$uid')
-          .snapshots(),
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: Supabase.instance.client
+          .from('club_members')
+          .stream(primaryKey: ['id'])
+          .eq('club_id', clubId)
+          .eq('user_id', uid)
+          .limit(1),
       builder: (context, snap) {
-        if (!snap.hasData || !snap.data!.exists) {
+        if (!snap.hasData || snap.data!.isEmpty) {
           return _JoinClubButton(clubId: clubId, uid: uid);
         }
 
-        final role =
-        (snap.data!.data() as Map<String, dynamic>)['role'];
+        final role = snap.data!.first['role'];
 
-        // ================= ADMIN VIEW =================
         if (role == 'admin') {
           return Column(
             children: [
@@ -214,7 +219,6 @@ class _RoleActions extends StatelessWidget {
           );
         }
 
-        // ================= MEMBER VIEW =================
         return _PrimaryButton(
           icon: Icons.chat_bubble_outline,
           text: 'Open Club Chat',
@@ -236,8 +240,10 @@ class _RoleActions extends StatelessWidget {
 }
 
 // =====================================================
-// JOIN BUTTON (reflects an existing pending request; guards
-// against duplicate club_join_requests docs from a double-tap)
+// JOIN BUTTON (reflects an existing pending request; the
+// club_join_requests_pending_idx partial unique index -- see
+// supabase/migrations/20260914000001_initial_schema.sql -- backstops
+// this same-club-same-user double-tap check with a real constraint)
 // =====================================================
 
 class _JoinClubButton extends StatefulWidget {
@@ -259,21 +265,19 @@ class _JoinClubButtonState extends State<_JoinClubButton> {
     final messenger = ScaffoldMessenger.of(context);
 
     try {
-      final firestore = FirebaseFirestore.instance;
-      final existing = await firestore
-          .collection('club_join_requests')
-          .where('clubId', isEqualTo: widget.clubId)
-          .where('userId', isEqualTo: widget.uid)
-          .where('status', isEqualTo: 'pending')
-          .limit(1)
-          .get();
+      final supabase = Supabase.instance.client;
+      final existing = await supabase
+          .from('club_join_requests')
+          .select('id')
+          .eq('club_id', widget.clubId)
+          .eq('user_id', widget.uid)
+          .eq('status', 'pending')
+          .limit(1);
 
-      if (existing.docs.isEmpty) {
-        await firestore.collection('club_join_requests').add({
-          'clubId': widget.clubId,
-          'userId': widget.uid,
-          'status': 'pending',
-          'createdAt': FieldValue.serverTimestamp(),
+      if (existing.isEmpty) {
+        await supabase.from('club_join_requests').insert({
+          'club_id': widget.clubId,
+          'user_id': widget.uid,
         });
       }
 
@@ -289,16 +293,16 @@ class _JoinClubButtonState extends State<_JoinClubButton> {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('club_join_requests')
-          .where('clubId', isEqualTo: widget.clubId)
-          .where('userId', isEqualTo: widget.uid)
-          .where('status', isEqualTo: 'pending')
-          .limit(1)
-          .snapshots(),
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: Supabase.instance.client
+          .from('club_join_requests')
+          .stream(primaryKey: ['id'])
+          .eq('club_id', widget.clubId)
+          .eq('user_id', widget.uid)
+          .limit(1),
       builder: (context, snap) {
-        final alreadyPending = snap.hasData && snap.data!.docs.isNotEmpty;
+        final alreadyPending = (snap.data ?? [])
+            .any((r) => r['status'] == 'pending');
 
         if (alreadyPending) {
           return const _PrimaryButton(
@@ -319,7 +323,7 @@ class _JoinClubButtonState extends State<_JoinClubButton> {
 }
 
 // =====================================================
-// ADMIN DASHBOARD CARD (POWER FEEL)
+// ADMIN DASHBOARD CARD
 // =====================================================
 
 class _AdminDashboardCard extends StatelessWidget {

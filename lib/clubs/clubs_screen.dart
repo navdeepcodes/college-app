@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'club_profile_screen.dart';
 import 'create_club_screen.dart';
@@ -20,13 +19,13 @@ class _ClubsScreenState extends State<ClubsScreen> {
   ];
 
   bool get _isAdmin {
-    final email = FirebaseAuth.instance.currentUser?.email;
+    final email = Supabase.instance.client.auth.currentUser?.email;
     return email != null && adminEmails.contains(email);
   }
 
   @override
   Widget build(BuildContext context) {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final uid = Supabase.instance.client.auth.currentUser?.id;
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -154,12 +153,12 @@ class _YourClubs extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('club_members')
-          .where('userId', isEqualTo: uid)
-          .limit(200)
-          .snapshots(),
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: Supabase.instance.client
+          .from('club_members')
+          .stream(primaryKey: ['id'])
+          .eq('user_id', uid)
+          .limit(200),
       builder: (context, snap) {
         if (snap.hasError) {
           return const Center(child: Text('Failed to load your clubs'));
@@ -169,7 +168,7 @@ class _YourClubs extends StatelessWidget {
           return const Center(child: CircularProgressIndicator());
         }
 
-        if (!snap.hasData || snap.data!.docs.isEmpty) {
+        if (!snap.hasData || snap.data!.isEmpty) {
           return const Center(
             child: Text(
               'You are not part of any clubs yet',
@@ -179,7 +178,7 @@ class _YourClubs extends StatelessWidget {
         }
 
         final clubIds =
-        snap.data!.docs.map((e) => e['clubId'] as String).toList();
+            snap.data!.map((e) => e['club_id'] as String).toList();
 
         return _ClubGrid(clubIds: clubIds, isAdmin: false);
       },
@@ -197,11 +196,11 @@ class _ExploreClubs extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('clubs')
-          .limit(200)
-          .snapshots(),
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: Supabase.instance.client
+          .from('clubs')
+          .stream(primaryKey: ['id'])
+          .limit(200),
       builder: (context, snap) {
         if (snap.hasError) {
           return const Center(child: Text('Failed to load clubs'));
@@ -211,7 +210,7 @@ class _ExploreClubs extends StatelessWidget {
           return const Center(child: CircularProgressIndicator());
         }
 
-        if (!snap.hasData || snap.data!.docs.isEmpty) {
+        if (!snap.hasData || snap.data!.isEmpty) {
           return const Center(
             child: Text(
               'No clubs available yet',
@@ -221,7 +220,7 @@ class _ExploreClubs extends StatelessWidget {
         }
 
         return _ClubGrid(
-          clubIds: snap.data!.docs.map((e) => e.id).toList(),
+          clubIds: snap.data!.map((e) => e['id'] as String).toList(),
           isAdmin: isAdmin,
         );
       },
@@ -261,7 +260,7 @@ class _ClubGrid extends StatelessWidget {
 }
 
 // =====================================================
-// CLUB CARD (FIXED BUFFERING)
+// CLUB CARD
 // =====================================================
 
 class _ClubCard extends StatelessWidget {
@@ -275,23 +274,24 @@ class _ClubCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<DocumentSnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('clubs')
-          .doc(clubId)
-          .snapshots(),
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: Supabase.instance.client
+          .from('clubs')
+          .stream(primaryKey: ['id'])
+          .eq('id', clubId)
+          .limit(1),
       builder: (context, snap) {
         if (snap.connectionState == ConnectionState.waiting) {
           return _SkeletonCard();
         }
 
-        if (!snap.hasData || !snap.data!.exists) {
+        if (!snap.hasData || snap.data!.isEmpty) {
           return _SkeletonCard();
         }
 
-        final data = snap.data!.data() as Map<String, dynamic>;
+        final data = snap.data!.first;
         final photoUrl =
-            data['photoUrl'] ?? data['imageUrl'] ?? data['logoUrl'];
+            data['photo_url'] ?? data['image_url'] ?? data['logo_url'];
 
         return GestureDetector(
           onTap: () => Navigator.push(
@@ -352,7 +352,7 @@ class _ClubCard extends StatelessWidget {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          '${data['membersCount'] ?? 1} members',
+                          '${data['members_count'] ?? 1} members',
                           style: const TextStyle(
                             fontSize: 11,
                             color: Colors.white70,
@@ -388,7 +388,7 @@ class _ClubCard extends StatelessWidget {
 }
 
 // =====================================================
-// SKELETON PLACEHOLDER (NO MORE “BUFFERING”)
+// SKELETON PLACEHOLDER
 // =====================================================
 
 class _SkeletonCard extends StatelessWidget {

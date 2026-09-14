@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'club_join_requests_screen.dart';
 import 'club_chat_screen.dart';
@@ -17,7 +16,7 @@ class ClubAdminDashboardScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final uid = Supabase.instance.client.auth.currentUser?.id;
 
     if (uid == null) {
       return const Scaffold(
@@ -32,13 +31,15 @@ class ClubAdminDashboardScreen extends StatelessWidget {
         elevation: 0,
         title: const Text('Admin Dashboard'),
       ),
-      body: StreamBuilder<DocumentSnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('club_members')
-            .doc('${clubId}_$uid')
-            .snapshots(),
+      body: StreamBuilder<List<Map<String, dynamic>>>(
+        stream: Supabase.instance.client
+            .from('club_members')
+            .stream(primaryKey: ['id'])
+            .eq('club_id', clubId)
+            .eq('user_id', uid)
+            .limit(1),
         builder: (context, snap) {
-          if (!snap.hasData || !snap.data!.exists) {
+          if (!snap.hasData || snap.data!.isEmpty) {
             return const Center(
               child: Text(
                 'Access denied',
@@ -47,7 +48,7 @@ class ClubAdminDashboardScreen extends StatelessWidget {
             );
           }
 
-          final member = snap.data!.data() as Map<String, dynamic>;
+          final member = snap.data!.first;
           final role = member['role'];
 
           if (role != 'admin') {
@@ -64,7 +65,6 @@ class ClubAdminDashboardScreen extends StatelessWidget {
             children: [
               _Header(clubName: clubName),
               const SizedBox(height: 24),
-
               _DashboardCard(
                 icon: Icons.person_add_alt_1,
                 title: 'Join Requests',
@@ -79,13 +79,11 @@ class ClubAdminDashboardScreen extends StatelessWidget {
                   );
                 },
               ),
-
               _DashboardCard(
                 icon: Icons.group_outlined,
                 title: 'Members',
                 subtitle: 'View club members',
                 onTap: () {
-                  // v2: Members management screen
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
                       content: Text('Members screen coming next'),
@@ -93,13 +91,11 @@ class ClubAdminDashboardScreen extends StatelessWidget {
                   );
                 },
               ),
-
               _DashboardCard(
                 icon: Icons.event_available_outlined,
                 title: 'Events',
                 subtitle: 'Create and manage events',
                 onTap: () {
-                  // v2: Event creation screen
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
                       content: Text('Event creation coming next'),
@@ -107,7 +103,6 @@ class ClubAdminDashboardScreen extends StatelessWidget {
                   );
                 },
               ),
-
               _DashboardCard(
                 icon: Icons.chat_bubble_outline,
                 title: 'Club Chat',
@@ -132,10 +127,6 @@ class ClubAdminDashboardScreen extends StatelessWidget {
     );
   }
 }
-
-// =====================================================
-// HEADER
-// =====================================================
 
 class _Header extends StatelessWidget {
   final String clubName;
@@ -164,10 +155,6 @@ class _Header extends StatelessWidget {
     );
   }
 }
-
-// =====================================================
-// DASHBOARD CARD
-// =====================================================
 
 class _DashboardCard extends StatelessWidget {
   final IconData icon;

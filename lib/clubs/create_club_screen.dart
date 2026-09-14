@@ -2,11 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-
-import '../core/admin.dart';
 
 class CreateClubScreen extends StatefulWidget {
   const CreateClubScreen({super.key});
@@ -26,7 +22,7 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
 
   Future<void> _pickIdCard() async {
     final picked =
-    await ImagePicker().pickImage(source: ImageSource.gallery);
+        await ImagePicker().pickImage(source: ImageSource.gallery);
     if (picked != null) {
       setState(() => _idCardImage = File(picked.path));
     }
@@ -44,50 +40,51 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
       return;
     }
 
-    final user = FirebaseAuth.instance.currentUser;
+    final supabase = Supabase.instance.client;
+    final user = supabase.auth.currentUser;
     if (user == null) return;
 
     setState(() => _loading = true);
 
     try {
-      // ✅ CORRECT & SAFE
-      final supabase = Supabase.instance.client;
-
       final filePath =
-          'club_id_cards/${user.uid}_${DateTime.now().millisecondsSinceEpoch}.jpg';
+          'club_id_cards/${user.id}_${DateTime.now().millisecondsSinceEpoch}.jpg';
 
-      await supabase.storage.from('clubs').upload(
-        filePath,
-        _idCardImage!,
-      );
+      await supabase.storage.from('clubs').upload(filePath, _idCardImage!);
 
-      final idCardUrl =
-      supabase.storage.from('clubs').getPublicUrl(filePath);
+      final idCardUrl = supabase.storage.from('clubs').getPublicUrl(filePath);
 
-      final requestRef =
-      await FirebaseFirestore.instance.collection('club_requests').add({
-        'ownerUid': user.uid,
-        'clubName': _clubNameController.text.trim(),
-        'description': _descriptionController.text.trim(),
-        'phone': _phoneController.text.trim(),
-        'usn': _usnController.text.trim(),
-        'idCardUrl': idCardUrl,
-        'status': 'pending',
-        'createdAt': FieldValue.serverTimestamp(),
-      });
+      final requestRow = await supabase
+          .from('club_requests')
+          .insert({
+            'owner_uid': user.id,
+            'club_name': _clubNameController.text.trim(),
+            'description': _descriptionController.text.trim(),
+            'phone': _phoneController.text.trim(),
+            'usn': _usnController.text.trim(),
+            'id_card_url': idCardUrl,
+          })
+          .select()
+          .single();
 
-      await FirebaseFirestore.instance.collection('notifications').add({
-        'type': 'club_request',
-        'requestId': requestRef.id,
-        'clubName': _clubNameController.text.trim(),
-        'fromUid': user.uid,
-        // Recipient is the platform admin: notifications are queried by toUid
-        // (notifications_screen.dart), and the Firestore rule rejects any
-        // notification without a recipient.
-        'toUid': adminUid,
-        'createdAt': FieldValue.serverTimestamp(),
-        'read': false,
-      });
+      // Recipient(s): whoever currently holds is_admin=true (see
+      // admin_ids(), supabase/migrations/20260914000006_admin_lookup_rpc.sql
+      // -- there's no compile-time admin UID equivalent to Firestore's
+      // lib/core/admin.dart in Supabase's identity space). If no admin
+      // account exists yet, there's simply nowhere to route the
+      // notification -- skip rather than fail the whole request; the
+      // club_request row itself is still there for an admin to find once
+      // one exists.
+      final adminIds = await supabase.rpc('admin_ids') as List<dynamic>;
+      for (final adminId in adminIds) {
+        await supabase.from('notifications').insert({
+          'type': 'club_request',
+          'request_id': requestRow['id'],
+          'club_name': _clubNameController.text.trim(),
+          'from_uid': user.id,
+          'to_uid': adminId,
+        });
+      }
 
       if (!mounted) return;
       Navigator.pop(context);
@@ -126,20 +123,19 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
               ),
               child: _idCardImage != null
                   ? ClipRRect(
-                borderRadius: BorderRadius.circular(16),
-                child:
-                Image.file(_idCardImage!, fit: BoxFit.cover),
-              )
+                      borderRadius: BorderRadius.circular(16),
+                      child: Image.file(_idCardImage!, fit: BoxFit.cover),
+                    )
                   : const Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.upload_file, size: 40),
-                    SizedBox(height: 8),
-                    Text('Upload College ID Card'),
-                  ],
-                ),
-              ),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.upload_file, size: 40),
+                          SizedBox(height: 8),
+                          Text('Upload College ID Card'),
+                        ],
+                      ),
+                    ),
             ),
           ),
           const SizedBox(height: 24),
@@ -155,11 +151,11 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
   }
 
   Widget _input(
-      String hint,
-      TextEditingController controller, {
-        int maxLines = 1,
-        TextInputType keyboard = TextInputType.text,
-      }) {
+    String hint,
+    TextEditingController controller, {
+    int maxLines = 1,
+    TextInputType keyboard = TextInputType.text,
+  }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: TextField(

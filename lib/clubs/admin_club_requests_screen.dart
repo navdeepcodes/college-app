@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class AdminClubRequestsScreen extends StatelessWidget {
   const AdminClubRequestsScreen({super.key});
@@ -10,11 +10,11 @@ class AdminClubRequestsScreen extends StatelessWidget {
       appBar: AppBar(
         title: const Text('Club Creation Requests'),
       ),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('club_requests')
-            .where('status', isEqualTo: 'pending')
-            .snapshots(),
+      body: StreamBuilder<List<Map<String, dynamic>>>(
+        stream: Supabase.instance.client
+            .from('club_requests')
+            .stream(primaryKey: ['id'])
+            .eq('status', 'pending'),
         builder: (context, snap) {
           if (snap.hasError) {
             return const Center(
@@ -29,7 +29,7 @@ class AdminClubRequestsScreen extends StatelessWidget {
             return const Center(child: CircularProgressIndicator());
           }
 
-          final docs = snap.data?.docs ?? [];
+          final docs = snap.data ?? [];
 
           if (docs.isEmpty) {
             return const Center(
@@ -44,10 +44,10 @@ class AdminClubRequestsScreen extends StatelessWidget {
             padding: const EdgeInsets.all(12),
             itemCount: docs.length,
             itemBuilder: (context, index) {
-              final doc = docs[index];
+              final data = docs[index];
               return _ClubRequestCard(
-                requestId: doc.id,
-                data: doc.data() as Map<String, dynamic>,
+                requestId: data['id'] as String,
+                data: data,
               );
             },
           );
@@ -70,50 +70,20 @@ class _ClubRequestCard extends StatefulWidget {
 class _ClubRequestCardState extends State<_ClubRequestCard> {
   bool _busy = false;
 
-  // ================= APPROVE =================
-  // Runs as a single transaction so a double-tap (or a re-render firing the
-  // callback twice) can't create two clubs docs: the transaction re-reads
-  // the request fresh and only proceeds if it's still 'pending', flipping
-  // the status in the same atomic write as club creation.
+  // Atomic on the database side now (approve_club_request RPC, see
+  // supabase/migrations/20260914000007_approve_club_request_rpc.sql) --
+  // no client-driven multi-statement transaction needed or possible over
+  // PostgREST; a double-tap re-reads the request inside the same Postgres
+  // transaction the RPC runs as, same no-op-if-already-resolved guarantee
+  // the Firestore version had.
   Future<void> _approve() async {
     if (_busy) return;
     setState(() => _busy = true);
     final messenger = ScaffoldMessenger.of(context);
 
-    final firestore = FirebaseFirestore.instance;
-    final requestRef = firestore.collection('club_requests').doc(widget.requestId);
-    final clubRef = firestore.collection('clubs').doc();
-    final ownerUid = widget.data['ownerUid'];
-
     try {
-      await firestore.runTransaction((txn) async {
-        final freshRequest = await txn.get(requestRef);
-        if (!freshRequest.exists || freshRequest.data()?['status'] != 'pending') {
-          // Already approved/rejected by a concurrent action — no-op.
-          return;
-        }
-
-        txn.set(clubRef, {
-          'name': widget.data['clubName'],
-          'description': widget.data['description'],
-          'ownerUid': ownerUid,
-          'admins': [ownerUid],
-          'membersCount': 1,
-          'createdAt': FieldValue.serverTimestamp(),
-        });
-
-        txn.set(
-          firestore.collection('club_members').doc('${clubRef.id}_$ownerUid'),
-          {
-            'clubId': clubRef.id,
-            'userId': ownerUid,
-            'role': 'admin',
-            'joinedAt': FieldValue.serverTimestamp(),
-          },
-        );
-
-        txn.update(requestRef, {'status': 'approved'});
-      });
+      await Supabase.instance.client
+          .rpc('approve_club_request', params: {'p_request_id': widget.requestId});
 
       messenger.showSnackBar(
         const SnackBar(content: Text('Club approved successfully')),
@@ -127,17 +97,16 @@ class _ClubRequestCardState extends State<_ClubRequestCard> {
     }
   }
 
-  // ================= REJECT =================
   Future<void> _reject() async {
     if (_busy) return;
     setState(() => _busy = true);
     final messenger = ScaffoldMessenger.of(context);
 
     try {
-      await FirebaseFirestore.instance
-          .collection('club_requests')
-          .doc(widget.requestId)
-          .update({'status': 'rejected'});
+      await Supabase.instance.client
+          .from('club_requests')
+          .update({'status': 'rejected'})
+          .eq('id', widget.requestId);
     } catch (e) {
       messenger.showSnackBar(
         SnackBar(content: Text('Reject failed: $e')),
@@ -158,7 +127,7 @@ class _ClubRequestCardState extends State<_ClubRequestCard> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              data['clubName'] ?? '',
+              data['club_name'] ?? '',
               style: const TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.bold,
@@ -170,13 +139,11 @@ class _ClubRequestCardState extends State<_ClubRequestCard> {
             Text('Phone: ${data['phone']}'),
             Text('USN: ${data['usn']}'),
             const SizedBox(height: 12),
-
-            // ID CARD
-            if (data['idCardUrl'] != null)
+            if (data['id_card_url'] != null)
               ClipRRect(
                 borderRadius: BorderRadius.circular(8),
                 child: Image.network(
-                  data['idCardUrl'],
+                  data['id_card_url'],
                   height: 160,
                   width: double.infinity,
                   fit: BoxFit.cover,
@@ -190,9 +157,7 @@ class _ClubRequestCardState extends State<_ClubRequestCard> {
                   },
                 ),
               ),
-
             const SizedBox(height: 12),
-
             Row(
               children: [
                 Expanded(

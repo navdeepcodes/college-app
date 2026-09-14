@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../moderation/text_filter.dart';
 
@@ -22,47 +21,22 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
   final TextEditingController _controller = TextEditingController();
   bool _sending = false;
   String? _uid;
-  bool _initFailed = false;
 
   @override
   void initState() {
     super.initState();
-    _init();
-  }
-
-  Future<void> _init() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
-
-    _uid = user.uid;
-
-    // 🔒 ENSURE CHAT DOC EXISTS (IMPORTANT)
-    final chatRef = FirebaseFirestore.instance
-        .collection('club_chats')
-        .doc(widget.clubId);
-
-    try {
-      final snap = await chatRef.get();
-      if (!snap.exists) {
-        await chatRef.set({
-          'clubId': widget.clubId,
-          'createdAt': FieldValue.serverTimestamp(),
-        });
-      }
-    } catch (e) {
-      debugPrint('Club chat init failed: $e');
-      if (mounted) setState(() => _initFailed = true);
-      return;
-    }
-
-    if (mounted) setState(() {});
+    // No "ensure parent doc exists" step needed -- club_messages.club_id
+    // is a plain foreign key, not a Firestore-style parent document that
+    // had to exist before its subcollection was reachable (see
+    // docs/supabase-schema.md's note on why that entire outage class,
+    // Phase 18 of the Firebase hardening work, can't recur here).
+    _uid = Supabase.instance.client.auth.currentUser?.id;
   }
 
   Future<void> _send() async {
     final text = _controller.text.trim();
     if (text.isEmpty || _sending || _uid == null) return;
 
-    // Moderation: block messages the content filter rejects (anon-chat policy).
     final filterResult = TextFilter.filter(text);
     if (!filterResult.isAllowed) {
       if (mounted) {
@@ -76,14 +50,10 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
     setState(() => _sending = true);
     _controller.clear();
 
-    await FirebaseFirestore.instance
-        .collection('club_chats')
-        .doc(widget.clubId)
-        .collection('messages')
-        .add({
-      'userId': _uid,
+    await Supabase.instance.client.from('club_messages').insert({
+      'club_id': widget.clubId,
+      'user_id': _uid,
       'text': filterResult.cleanedText,
-      'createdAt': FieldValue.serverTimestamp(),
     });
 
     if (mounted) setState(() => _sending = false);
@@ -91,31 +61,6 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (_initFailed) {
-      return Scaffold(
-        appBar: AppBar(title: Text(widget.clubName)),
-        body: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text(
-                "Couldn't open this chat. Check your connection.",
-                style: TextStyle(color: Colors.white70),
-              ),
-              const SizedBox(height: 12),
-              ElevatedButton(
-                onPressed: () {
-                  setState(() => _initFailed = false);
-                  _init();
-                },
-                child: const Text('Retry'),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
     if (_uid == null) {
       return const Scaffold(
         body: Center(child: CircularProgressIndicator()),
@@ -131,14 +76,13 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
       body: Column(
         children: [
           Expanded(
-            child: StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance
-                  .collection('club_chats')
-                  .doc(widget.clubId)
-                  .collection('messages')
-                  .orderBy('createdAt', descending: true)
-                  .limit(100)
-                  .snapshots(),
+            child: StreamBuilder<List<Map<String, dynamic>>>(
+              stream: Supabase.instance.client
+                  .from('club_messages')
+                  .stream(primaryKey: ['id'])
+                  .eq('club_id', widget.clubId)
+                  .order('created_at', ascending: false)
+                  .limit(100),
               builder: (context, snap) {
                 if (snap.hasError) {
                   return const Center(
@@ -155,7 +99,7 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
                   );
                 }
 
-                final docs = snap.data!.docs;
+                final docs = snap.data!;
 
                 if (docs.isEmpty) {
                   return const Center(
@@ -171,12 +115,12 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
                   padding: const EdgeInsets.all(12),
                   itemCount: docs.length,
                   itemBuilder: (_, i) {
-                    final data = docs[i].data() as Map<String, dynamic>;
-                    final isMe = data['userId'] == _uid;
+                    final data = docs[i];
+                    final isMe = data['user_id'] == _uid;
 
                     return Align(
                       alignment:
-                      isMe ? Alignment.centerRight : Alignment.centerLeft,
+                          isMe ? Alignment.centerRight : Alignment.centerLeft,
                       child: Container(
                         margin: const EdgeInsets.only(bottom: 8),
                         padding: const EdgeInsets.all(12),
@@ -197,7 +141,6 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
               },
             ),
           ),
-
           SafeArea(
             child: Container(
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
