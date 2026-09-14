@@ -41,13 +41,20 @@ class CollegeDetector {
   }
 }
 
-/// Canonical college identity for a user document, with backward compatibility:
-/// reads `collegeId` when present, otherwise falls back to the legacy `college`
-/// display string. Never returns null for a fetched document that has either.
+/// Canonical college identity for a user row. `profiles.college_id` (the
+/// column this app's Postgres schema actually uses) is checked first; the
+/// legacy `collegeId` key is kept only for any leftover Firestore-shaped
+/// map that still reaches this function, and `college` (the human-readable
+/// display name typed into profile setup) is the last resort, not the
+/// canonical id -- it must never silently stand in for one, since it's
+/// arbitrary free text, not the slug college_id_from_email() derives and
+/// every RLS policy and Realtime filter compares against.
 String canonicalCollegeId(Map<String, dynamic>? doc) {
   if (doc == null) return '';
-  final id = doc['collegeId'];
-  if (id is String && id.isNotEmpty) return id;
+  final snakeCase = doc['college_id'];
+  if (snakeCase is String && snakeCase.isNotEmpty) return snakeCase;
+  final camelCase = doc['collegeId'];
+  if (camelCase is String && camelCase.isNotEmpty) return camelCase;
   final legacy = doc['college'];
   if (legacy is String && legacy.isNotEmpty) return legacy;
   return '';
