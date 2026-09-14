@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../app/auth_gate.dart';
 import '../clubs/admin_club_requests_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
@@ -158,10 +159,35 @@ class SettingsScreen extends StatelessWidget {
           ListTile(
             leading: const Icon(Icons.logout),
             title: const Text('Log out'),
+            // A plain Navigator.pop(context) after signOut() raced
+            // AuthGate's own StreamBuilder (app/auth_gate.dart), which
+            // swaps the whole authenticated subtree for WelcomeScreen
+            // only once onAuthStateChange actually delivers the
+            // sign-out event -- an async step with no guaranteed
+            // ordering against a synchronous pop right after the
+            // signOut() Future resolves. Found live, on-device: the pop
+            // sometimes won that race, revealing the *old* root route a
+            // frame before AuthGate's rebuild landed -- and
+            // BottomNavShell's build() reads auth.currentUser
+            // synchronously with no recovery path if it's ever null, so
+            // that frame became a permanently stuck loading spinner, not
+            // a flicker.
+            //
+            // Push a *fresh* AuthGate and drop the entire old stack
+            // instead of popping back into it. A new AuthGate's
+            // StreamBuilder seeds its first frame from
+            // `initialData: currentSession` -- read synchronously at
+            // construction time, after signOut() has already fully
+            // completed -- so it renders WelcomeScreen correctly on
+            // its very first build. No dependency on when the stream
+            // event arrives, so no race left to lose.
             onTap: () async {
               await Supabase.instance.client.auth.signOut();
               if (context.mounted) {
-                Navigator.pop(context);
+                Navigator.of(context).pushAndRemoveUntil(
+                  MaterialPageRoute(builder: (_) => const AuthGate()),
+                  (route) => false,
+                );
               }
             },
           ),
