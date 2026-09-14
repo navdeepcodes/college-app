@@ -1,5 +1,18 @@
 # TrueKinn — Supabase Migration Status
 
+**SUPERSEDED.** This document describes the state after the backend-only
+phase (schema + RLS built and verified, Flutter app still on Firebase).
+That is no longer the current state: the full Flutter cutover happened,
+Firebase was removed entirely, and the app has been built and live-tested
+on a real Android device against this same Supabase project — including
+three more critical bugs (Realtime never enabled, Storage buckets never
+created, a Firestore-camelCase-vs-Postgres-snake_case college_id
+mismatch) found only by actually running the app, not by this document's
+scenario test. See `docs/supabase-migration-final-report.md` for the
+current, accurate status. The content below is kept as a historical
+record of the backend-only checkpoint; do not treat its "Not done this
+session" section or its final status line as current.
+
 **Last updated:** this session, immediately after live-verifying the RLS scenario test (40/40 passing).
 
 ## Done, and verified against the real live project (not a plan)

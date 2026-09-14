@@ -1,94 +1,224 @@
-# TrueKinn — Supabase Migration: Session Final Report
+# TrueKinn — Supabase Migration: Final Report
+
+This report supersedes the version written after Phase 1 (backend-only).
+Everything below reflects the actual current state: **the full Flutter
+cutover happened, Firebase has been removed, and the app has been built,
+installed, and live-tested on a real Android device against the real
+Supabase project** — none of which was true when the earlier version of
+this document was written.
 
 ## Original architecture (at session start)
 
-Firebase Auth (Google Sign-In primary) + Cloud Firestore (18 collections) + Firestore Security Rules (582 lines, 20 match blocks, 211 passing tests) + 2 Cloud Functions + Supabase Storage only (for Moments media, though `lib/secrets.dart` held only placeholder credentials — the app was not actually wired to a live Supabase project at session start).
+Firebase Auth (Google Sign-In primary) + Cloud Firestore (18 collections)
++ Firestore Security Rules (582 lines, 20 match blocks, 211 passing
+tests) + 2 Cloud Functions.
 
-## Final architecture (at session end)
+## Final architecture (current)
 
-**Two backends now exist, deliberately not yet merged into one running app:**
-- The Firebase side is **completely unchanged** — same 211/211 rules tests, same `flutter analyze`/`flutter test` results, same app behavior. Nothing in this session touched it.
-- A **new, real, live, fully-verified Supabase backend** now exists on the "ReServe dev" project: 18 Postgres tables (1:1 with the Firestore collections), full RLS policy coverage, counter-maintenance triggers, and a 40-step live scenario test proving the security model against real accounts and real signed tokens. The Flutter app does not yet talk to it.
+**Supabase only. Firebase is fully removed, not just superseded.**
+
+- Auth: Supabase Auth (email/password verified live end-to-end; Google
+  via `signInWithIdToken`, code-complete, blocked on a dashboard config
+  step only a human can do — see Remaining blockers).
+- Data: Postgres, 18 tables, full RLS (`supabase/migrations/000000`–`000011`).
+- Storage: 5 buckets (`profile_photos`, `posts`, `moments`, `events`,
+  `clubs`), created and RLS-gated in `20260914000011_create_storage_buckets.sql`.
+- Realtime: all 16 tables the Flutter app subscribes to via `.stream()`
+  are in the `supabase_realtime` publication (`20260914000010_enable_realtime.sql`).
+- `firebase_core`, `firebase_auth`, `cloud_firestore` are gone from
+  `pubspec.yaml`; `lib/firebase_options.dart` and `lib/core/admin.dart`
+  are deleted; `grep -rl "firebase_auth\|cloud_firestore" lib/` returns
+  nothing. The native Android `google-services` Gradle plugin is removed
+  (nothing left to apply it to, and its presence would otherwise require
+  a `google-services.json` that never existed).
+- `firestore.rules`, `functions/`, and `functions/test-rules/*.test.js`
+  (211 tests) are deliberately left in place as reference/security-
+  behavioral documentation — not deleted, not used by the running app.
+
+## What changed since the last report (Phases 8–11)
+
+The Phase-1 report described "backend built, Flutter unchanged." Since
+then, in order:
+
+- **Phase 8**: full Flutter cutover — every feature (auth, feed, friends,
+  chat, anon chat, clubs, notifications, settings, moments) rewritten
+  against Supabase. Firebase removed from the Dart dependency graph.
+- **Phase 9**: first-ever successful native Android build, install, and
+  launch for this project (previously blocked every prior session on a
+  missing `google-services.json`) — unblocked by removing the now-dead
+  `google-services` plugin. Live on-device signup and login were tested;
+  login surfaced a real race condition (`profiles_pkey` unique violation
+  when two `AuthGate` instances bootstrap concurrently), root-caused via
+  direct DB timestamp correlation, and fixed.
+- **Phase 10**: live-testing the fixed login uncovered that **Realtime
+  was never enabled for any table** — every `.stream()`-backed screen
+  (feed, chat, clubs, notifications, friends, comments, moments, events)
+  failed outright the moment it was opened. Fixed by adding all 16
+  tables to `supabase_realtime`.
+- **Phase 11**: with Realtime fixed, the next live test (creating a real
+  feed post) immediately hit two more bugs: **no Storage buckets existed
+  at all** (404 on first upload), and once that was fixed, the post
+  insert failed RLS because **`canonicalCollegeId()` read Firestore's
+  camelCase `collegeId` field, which is never present on a Postgres row**
+  — it silently fell through to the human-readable `college` display
+  string instead of the canonical `college_id` slug every RLS policy and
+  Realtime filter compares against. Both fixed; verified end-to-end by
+  posting a real image with a real caption and watching it render back
+  through the Realtime stream.
+
+**The throughline worth stating plainly**: all four of these were found
+by literally opening the running app and using it, not by the automated
+RLS scenario test — which stayed green through all of it (see Test
+results below). That test validates the security model; it does not
+exercise the Dart client at all. A backend can be perfectly correct and
+the app can still be completely broken. This is why "the schema and RLS
+tests pass" was never treated as sufficient evidence of readiness this
+session.
 
 ## Complete schema
 
-See `docs/supabase-schema.md` for the full table-by-table reference with every column, constraint, and function.
+See `docs/supabase-schema.md` (schema-level; storage buckets and the
+Realtime publication are the two additions from Phases 10–11 not yet
+reflected there — see the migration files themselves for the current
+source of truth: `supabase/migrations/`).
 
-## Feature migration status
+## Feature migration + live-verification status
 
-| Feature | Firebase (unchanged) | Supabase backend | Flutter cutover |
-|---|---|---|---|
-| Auth / onboarding | working, verified prior session | schema + RLS ready, live-verified for email/password-equivalent bootstrap flow | not started |
-| Feed / posts / likes / comments | working, verified prior session | schema + RLS ready, live-verified (posts/likes; comments by direct policy parity, not independently scenario-tested this pass) | not started |
-| Friends | working, verified prior session | schema + RLS ready, live-verified including forgery/duplicate prevention | not started |
-| 1:1 chat | working, verified prior session | schema + RLS ready, live-verified including sender-spoofing denial | not started |
-| Clubs (create/join/chat/admin) | working, verified prior session | schema + RLS ready, live-verified including self-service-creation denial and the Phase-21-equivalent nonexistent-row case | not started |
-| Events | write-only gap documented and fixed in Flutter last session (read path added) | schema + RLS ready, live-verified for college isolation | not started |
-| Notifications | working, verified prior session | schema + RLS ready, live-verified including recipient-only visibility | not started |
-| Anonymous college chat | working, verified prior session | schema + RLS ready, live-verified including college isolation + TTL bound | not started |
-| Moments | intentionally disabled, unchanged | schema + RLS ready, **plus two bugs fixed ahead of the reference** (college scoping, report carve-out) — not live-scenario-tested since the feature stays disabled either way | not started; stays disabled per explicit instruction |
-
-## Authentication migration status
-
-Design complete (`docs/supabase-auth-migration.md`). No real users exist to migrate (confirmed, not assumed — the Firebase project isn't even accessible from this environment's Firebase account). Google Sign-In cutover is blocked on a real, unavoidable manual step: the project owner configuring a Google OAuth client in the Supabase dashboard. Email/password has no such blocker and could be cut over first if wanted.
+| Feature | Cut over to Supabase | Live on-device verification |
+|---|---|---|
+| Auth (signup, login, race-condition fix) | yes | **yes** — real signup, real login, race condition found and fixed live |
+| Profile setup / completion | yes | **yes** — full form submit verified, `profile_completed` flag confirmed written |
+| Feed (read, college-scoped) | yes | **yes** — confirmed broken (missing Realtime + wrong college_id), then confirmed fixed |
+| Feed (create post: storage + insert) | yes | **yes** — real image uploaded, real row inserted, rendered back live |
+| Profile screen (own profile, posts grid, counts) | yes | **yes** — `posts_count` trigger confirmed correct |
+| Search (classmate search) | yes | **yes** — confirmed working, no errors |
+| Events (college-scoped read) | yes | **yes** — confirmed working, real pre-existing event rendered |
+| Clubs (Your Clubs / Explore tabs) | yes | partial — screen loads and streams cleanly; create/approve/join not exercised on-device this session |
+| Messages / 1:1 chat list | yes | partial — list screen loads cleanly; sending/receiving a message not exercised on-device this session |
+| Friends (request/accept) | yes | not exercised on-device this session (RLS-scenario-tested only, see caveat above) |
+| Anonymous college chat | yes | not exercised on-device this session (RLS-scenario-tested only) |
+| Notifications | yes | not exercised on-device this session (RLS-scenario-tested only) |
+| Club chat, moderation/report flows | yes | not exercised on-device this session (RLS-scenario-tested only) |
+| Moments | yes (code cut over) | **intentionally not tested** — `kMomentsEnabled = false`, untouched per standing instruction |
 
 ## Security / RLS status
 
-Complete and live-verified. Full mapping in `docs/supabase-security-model.md`. Two real bugs found via live testing (RLS helper recursion; counter-trigger RLS-blocking) were fixed the same session they were found, with regression coverage in the scenario script. Every college-isolation, forgery-prevention, and escalation-prevention property the Firebase side had to learn the hard way (across three separate historical incidents: signup bootstrap, club membership view, and the original Phase 18 security pass) is proven, live, on the Postgres side too — not assumed to carry over just because the design looks equivalent on paper.
+Complete. 40/40 scenario-test steps pass on the current full schema
+(migrations 000000–000011), re-run this session after the storage/
+realtime/college_id fixes to confirm no regression. Full mapping in
+`docs/supabase-security-model.md` (schema-level content still accurate;
+does not yet cover storage.objects policies — see
+`20260914000011_create_storage_buckets.sql` directly for those).
 
 ## Storage status
 
-Not migrated this session. `lib/services/storage_service.dart` and its callers (Moments capture, club ID-card upload, profile photos) still use `Supabase.instance.client.storage` directly, unchanged — this was already Supabase-backed before the migration began (with placeholder credentials, per the Phase 0 finding), so there is genuinely nothing to migrate here yet in the sense of moving data between platforms; what remains is wiring real credentials into `lib/secrets.dart` and deciding bucket-level RLS policies, both out of scope for this pass.
+**Built and live-verified this session** (Phase 11). All 5 buckets
+created with RLS matching the app's existing upload-path conventions.
+One open item, not fixed: the `clubs` bucket (club-creation ID card
+photos) is public-read to match the app's existing `getPublicUrl()`
+usage everywhere, which means an ID card image is fetchable by anyone
+with the URL, not just admins reviewing the request. Fixing this
+properly needs a signed-URL flow in the admin review screen — flagged,
+not fixed, since it's an app-code change beyond "create the missing
+bucket."
 
 ## Realtime status
 
-Not built this session. No Supabase Realtime subscriptions exist yet — this is Phase 12/15 territory, sequenced after the Flutter service-layer cutover begins.
-
-## Edge Functions status
-
-Not built. `functions/index.js`'s two Cloud Functions were not translated:
-- `cleanupExpiredAnonMessages` → the natural Postgres equivalent is `pg_cron` (schedule a `DELETE FROM anon_messages WHERE expires_at < now()`) rather than an Edge Function, since it's a pure database invariant with no application logic — noted here as the recommended approach, not yet implemented or verified against this project's actual plan tier (pg_cron availability wasn't checked this session).
-- `friendCreated` → superseded entirely by the `bump_friends_count()` trigger already built and live-verified this session (scenario step 3e implicitly exercises it via the friendship creation, though the counter value itself wasn't asserted in that step — worth adding as a follow-up assertion, not a gap in the trigger's correctness, which mirrors the already-proven `bump_post_likes_count` pattern exactly).
-
-## Data migration status
-
-Not applicable — no real data exists (Phase 0 finding, confirmed not assumed). Process documented in `docs/supabase-auth-migration.md` for when it becomes applicable.
+**Built and live-verified this session** (Phase 10). All 16
+`.stream()`-backed tables are in the `supabase_realtime` publication.
+RLS applies to the realtime changefeed the same as REST.
 
 ## Firebase removal status
 
-**Not started, deliberately.** `pubspec.yaml`, `firestore.rules`, `functions/`, and every Firebase-touching Dart file remain exactly as they were. Per the migration's own Phase 16 instruction ("only AFTER the Supabase implementation is working and verified: remove Firebase"), this is the correct state to be in at this checkpoint, not a shortfall — the "working and verified" bar has been met for the backend; the "switch" step (Phase 15) that would make removal safe has not yet begun.
+**Done**, both layers:
+- Dart: `firebase_core`/`firebase_auth`/`cloud_firestore` removed from
+  `pubspec.yaml`, `firebase_options.dart` deleted, zero remaining
+  imports anywhere in `lib/` (grep-verified).
+- Native Android: `google-services` Gradle plugin removed from both
+  `android/app/build.gradle.kts` and `android/settings.gradle.kts`.
+- `firestore.rules` and `functions/` remain in the repo as reference
+  material only, per the migration's own instruction not to discard the
+  security-behavioral knowledge encoded in them.
 
 ## Test results
 
-- Firebase side: unchanged from session start — `flutter analyze` 0 issues, `flutter test` 32/32, Firestore rules 211/211, 47-step chained scenario passing. Re-verified at the start of this session before any Supabase work began.
-- Supabase side: 40/40 live scenario steps passing (`supabase/tests/rls_scenario_check.py`) against the real project, on the final run, after fixing two live-discovered bugs.
+- `flutter analyze`: 0 issues at every checkpoint this session, including
+  after each of the Phase 9–11 fixes.
+- `supabase/tests/rls_scenario_check.py`: **40/40 passing**, re-run this
+  session against the full current migration state (000000–000011) with
+  freshly created test accounts, confirming no regression from the
+  profile-fields/posts-count/RPC/realtime/storage migrations added since
+  the last time this test ran.
+- Real Android build: `BUILD SUCCESSFUL`, installed via `adb install -r`,
+  launched on the `Aegis_Test` emulator.
+- Real on-device testing performed this session: signup, login (including
+  the race-condition fix), profile setup and completion, feed load
+  (confirmed broken, then confirmed fixed), post creation (image upload
+  + insert, confirmed broken twice — storage then RLS — then confirmed
+  fixed and rendering live), classmate search, own-profile view with
+  live post count, events list, clubs tabs, messages list.
+- iOS: **not touched or re-verified this session.**
 
 ## Android / iOS results
 
-Not re-run this session — no Flutter/Dart code changed, so there is nothing new to build or verify on either platform. Prior session's findings stand: Android structurally sound, blocked on a real `google-services.json`; iOS CocoaPods dependency resolution verified, full compile blocked on no local simulator runtime. Neither is affected by this session's backend-only work.
+Android: real build/install/launch verified this session, on real
+hardware emulation, with real backend calls — not a compile-only check.
+
+iOS: unchanged from before this session. Not attempted.
 
 ## Remaining blockers
 
-1. **Google OAuth provider** must be configured in the Supabase dashboard by the project owner before Google Sign-In can be cut over (real credential, cannot be fabricated).
-2. **The Flutter service-layer rewire** (35 files) has not started — see `docs/supabase-migration-status.md` for the exact, ordered plan for doing this safely, one feature at a time, with verification at each step.
-3. **Real Supabase credentials** need to replace the placeholders in `lib/secrets.dart` before the app can talk to this project at all (the project ref, anon key, and URL are all now known and documented in this session's work, but were deliberately not written into `lib/secrets.dart` in this pass, since doing so with no Flutter code yet consuming them would be a config change with no corresponding tested behavior — exactly the "don't claim success without testing" principle this migration itself insists on).
-4. **`pg_cron` availability** on this project's plan tier was not checked — needed before the `cleanupExpiredAnonMessages` equivalent can be scheduled.
+1. **Google OAuth provider** must be configured in the Supabase dashboard
+   by the project owner before Google Sign-In can be cut over (real
+   credential, cannot be fabricated). Email/password has no such
+   blocker and is already live-verified.
+2. **iOS** has not been touched at all in this phase — no build attempt,
+   no dependency resolution check, nothing. Treat it as unverified, not
+   as "probably fine because Android is fine" — this session's own
+   findings (three bugs Android live-testing caught that RLS testing
+   missed) are a direct argument against assuming platform parity
+   without separately testing it.
+3. **Friends, 1:1 chat send/receive, clubs create/approve/join, club
+   chat, anon chat, notifications, and moderation/report flows** are cut
+   over and RLS-scenario-tested, but not exercised through the actual
+   running app this session. Given this session's own pattern (every
+   bug found was invisible to the scenario test and only surfaced by
+   actually using the screen), these should be treated as unverified in
+   practice until someone opens each screen and uses it.
+4. **`clubs` storage bucket public-read exposure** (ID card photos) —
+   documented above, not fixed.
 
 ## Remaining technical debt
 
-- `clubs` has no DELETE policy (documented gap, `docs/supabase-schema.md`) — a product decision (cascade behavior on club deletion), not an oversight.
-- The mission brief assumed a `reports` collection exists in the current product; it does not (the closest analogue is `moments.reports_count`). No fictitious table was built to match an assumption that didn't hold up against the reference implementation.
-- `comments` RLS was designed by direct parity with the already-verified `post_likes` policies but wasn't independently exercised in the live scenario test — low risk given the parity, but not proven with the same rigor as the rest.
-
-## Exact human actions required, in order
-
-1. Configure the Google OAuth provider in the Supabase dashboard (Authentication → Providers → Google) with real client credentials, if Google Sign-In should be the cutover target — or decide email/password should go first instead, which needs no such step.
-2. Review the schema/RLS/migration files (`supabase/migrations/*.sql`) and the security-model mapping before authorizing the Flutter cutover to begin.
-3. Decide the `clubs` delete/cascade behavior (documented gap above) if club deletion should ever be supported.
-4. When ready to begin Phase 15: say so explicitly, and expect it to proceed one feature at a time, each with its own real verification, not as a single large rewrite.
+- `clubs` table has no DELETE policy (pre-existing, documented gap) — a
+  product decision, not an oversight.
+- `comments` RLS was designed by direct parity with `post_likes` but
+  isn't independently exercised in the scenario test.
+- `docs/supabase-schema.md` and `docs/supabase-security-model.md` are
+  schema/RLS-level references and are still accurate for that scope, but
+  neither has been updated to include the storage buckets or the
+  Realtime publication membership added in Phases 10–11.
 
 ## Final status
 
-**MIGRATION IN PROGRESS.**
+**INTERNAL TEST READY.**
 
-Not INTERNAL TEST READY as a Supabase-backed app — the Flutter application does not run on Supabase yet; nothing about today's work changes what a real user experiences. It IS, however, a real, live, thoroughly-verified backend foundation: not a document, not an assumption, not "the schema looks right" — 40 real HTTP calls against a real database with real security policies, in the exact chained, adversarial shape (deny-direction assertions included) that has caught every serious bug this project has ever shipped. The honest, conservative call is that this session completed real infrastructure work and stopped at the correct, deliberate boundary before the higher-risk step of rewiring a working, already-hardened production application — not that it fell short of a larger claim.
+Not CLOSED BETA READY: several core flows (friends, chat send, club
+admin actions, anon chat, notifications, moderation) are cut over and
+RLS-verified but not yet proven by actually using them, and iOS hasn't
+been touched at all this phase. Given how many real, user-facing-breaking
+bugs turned up in the flows that *were* live-tested — a race condition,
+Realtime entirely non-functional, Storage entirely non-functional, and a
+silent college-identity mismatch that would have corrupted every
+college-scoped read and write in production — it would be dishonest to
+call the untested flows "probably fine."
+
+Not still MIGRATION IN PROGRESS either: the cutover is genuinely
+complete (Firebase fully removed, not coexisting), the app builds and
+runs on a real device against the real backend, and the flows that have
+been tested work correctly end-to-end, including storage uploads and
+real-time updates.
+
+INTERNAL TEST READY is the honest middle: put this in front of a small
+group of real users on Android, watch what breaks, and treat every
+report from an untested flow as expected, not surprising.

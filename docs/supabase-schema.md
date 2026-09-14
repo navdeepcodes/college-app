@@ -57,3 +57,27 @@ Three separate Firestore rules bugs this project hit (`users.read` breaking ever
 
 - **`clubs` has no DELETE policy.** The reference Firestore rule (`admins.hasAny(...)`) would have technically allowed it, but no UI path in the current app ever calls it (blueprint finding, category G — missing). Adding a delete policy is a product decision (what happens to `club_members`/`club_messages` on club deletion — cascade? soft-delete?) this migration is not positioned to invent. Left absent; documented here per the mission's own "stop at this boundary rather than guessing" instruction.
 - **`reports` has no table.** The migration brief mentions "reports" as an existing feature; the actual current implementation has no such collection — the closest analogue is `moments.reports_count`, a field on the moment itself, not a separate audit-trail table. No fictitious `reports` table was invented to match the brief's assumption; this finding is called out explicitly rather than silently building something that doesn't reflect the reference implementation.
+
+## Addendum: Storage buckets + Realtime publication (added Phase 10–11, not yet folded into the tables above)
+
+Two things the Flutter app depends on that are not part of the
+table/RLS schema above, added after this document was first written,
+both found missing only by live-testing the running app (not by
+reviewing the schema):
+
+- **Storage buckets**: `profile_photos`, `posts`, `moments`, `events`,
+  `clubs` — created public (matching every call site's existing
+  `getPublicUrl()` usage) with owner-restricted write policies. See
+  `supabase/migrations/20260914000011_create_storage_buckets.sql` for
+  the buckets and their `storage.objects` RLS policies. The `clubs`
+  bucket's public-read exposure of ID card photos is a known,
+  documented, unfixed privacy consideration — see that migration's
+  comments and `docs/supabase-migration-final-report.md`.
+- **Realtime publication**: all 16 tables the app subscribes to via
+  `.stream()` (`posts`, `post_likes`, `comments`, `conversations`,
+  `messages`, `anon_messages`, `clubs`, `club_members`,
+  `club_requests`, `club_join_requests`, `club_messages`,
+  `friendships`, `notifications`, `moments`, `events`, `profiles`) are
+  in `supabase_realtime`. See
+  `supabase/migrations/20260914000010_enable_realtime.sql`. RLS still
+  applies to the realtime changefeed.
