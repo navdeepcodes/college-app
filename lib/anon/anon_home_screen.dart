@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'college_anon_chat_screen.dart';
 import '../auth/services/college_detector.dart';
@@ -24,7 +23,7 @@ class _AnonHomeScreenState extends State<AnonHomeScreen> {
 
   Future<void> _loadUser() async {
     try {
-      final user = FirebaseAuth.instance.currentUser;
+      final user = Supabase.instance.client.auth.currentUser;
 
       // ✅ Prevent Android auth race
       if (user == null) {
@@ -32,15 +31,16 @@ class _AnonHomeScreenState extends State<AnonHomeScreen> {
         return;
       }
 
-      final snap = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .get();
+      final rows = await Supabase.instance.client
+          .from('profiles')
+          .select()
+          .eq('id', user.id)
+          .limit(1);
 
       if (!mounted) return;
 
       setState(() {
-        _collegeId = canonicalCollegeId(snap.data());
+        _collegeId = rows.isNotEmpty ? canonicalCollegeId(rows.first) : '';
         _loading = false;
       });
     } catch (e) {

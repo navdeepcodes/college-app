@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/services.dart'; // Added for haptics
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:flutter/services.dart';
 import '../moderation/text_filter.dart';
 
 class CollegeAnonChatScreen extends StatefulWidget {
@@ -24,6 +23,8 @@ class _CollegeAnonChatScreenState extends State<CollegeAnonChatScreen> {
   String? _anonId;
   DateTime? _lastSent;
 
+  SupabaseClient get _db => Supabase.instance.client;
+
   @override
   void initState() {
     super.initState();
@@ -37,24 +38,45 @@ class _CollegeAnonChatScreenState extends State<CollegeAnonChatScreen> {
   }
 
   Future<void> _loadContext() async {
-    final user = FirebaseAuth.instance.currentUser;
+    final user = _db.auth.currentUser;
     if (user == null) return;
 
-    final snap = await FirebaseFirestore.instance
-        .collection('users')
-        .doc(user.uid)
-        .get();
+    final rows = await _db.from('profiles').select().eq('id', user.id).limit(1);
 
     if (!mounted) return;
 
     setState(() {
-      _anonId = snap.data()?['anonId'];
+      _anonId = rows.isNotEmpty ? rows.first['anon_id'] : null;
     });
+
+    // Ensure the room exists (idempotent — see supabase-security-model.md,
+    // anon_rooms is a fixed-id-per-college row anyone at that college may
+    // create-if-missing). Firestore's version did this implicitly by
+    // treating a get() failure as "not created yet"; here it's a plain
+    // select-then-insert against a row that reads back empty, not an
+    // error, when absent.
+    final roomCollegeId = _roomCollegeId;
+    if (roomCollegeId.isNotEmpty) {
+      final existing = await _db
+          .from('anon_rooms')
+          .select('college_id')
+          .eq('college_id', roomCollegeId)
+          .limit(1);
+      if (existing.isEmpty) {
+        try {
+          await _db.from('anon_rooms').insert({
+            'college_id': roomCollegeId,
+            'created_by': user.id,
+          });
+        } catch (_) {
+          // Lost a create race to another student at the same college —
+          // the room exists either way now.
+        }
+      }
+    }
   }
 
   /// The canonical college slug embedded in the room id (`college_<collegeId>`).
-  /// Sent with every message so the Firestore rule can verify
-  /// `collegeId == users/{uid}.collegeId`.
   String get _roomCollegeId {
     const prefix = 'college_';
     return widget.chatId.startsWith(prefix)
@@ -63,7 +85,7 @@ class _CollegeAnonChatScreenState extends State<CollegeAnonChatScreen> {
   }
 
   Future<void> _sendMessage() async {
-    final user = FirebaseAuth.instance.currentUser;
+    final user = _db.auth.currentUser;
     final rawText = _msgController.text.trim();
     final roomCollegeId = _roomCollegeId;
 
@@ -78,11 +100,9 @@ class _CollegeAnonChatScreenState extends State<CollegeAnonChatScreen> {
       return;
     }
 
-    // Real 10s client-side cooldown between sends.
     final lastSent = _lastSent;
     if (lastSent != null) {
-      final elapsed =
-          DateTime.now().difference(lastSent).inMilliseconds;
+      final elapsed = DateTime.now().difference(lastSent).inMilliseconds;
       if (elapsed < 10000) {
         final remaining = (10000 - elapsed) ~/ 1000 + 1;
         _showError('Slow down! $remaining s before sending again.');
@@ -90,7 +110,6 @@ class _CollegeAnonChatScreenState extends State<CollegeAnonChatScreen> {
       }
     }
 
-    // Add haptic feedback for a premium feel
     HapticFeedback.lightImpact();
 
     setState(() => _sending = true);
@@ -98,31 +117,16 @@ class _CollegeAnonChatScreenState extends State<CollegeAnonChatScreen> {
     _msgController.clear();
 
     try {
-      final batch = FirebaseFirestore.instance.batch();
-      final msgRef = FirebaseFirestore.instance
-          .collection('anon_chats')
-          .doc(widget.chatId)
-          .collection('messages')
-          .doc();
-
-      final userRef = FirebaseFirestore.instance.collection('users').doc(user.uid);
-
-      batch.set(msgRef, {
-        'anonId': _anonId,
+      await _db.from('anon_messages').insert({
+        'room_college_id': roomCollegeId,
+        'anon_id': _anonId,
         'text': textToUpload,
-        'userId': user.uid,
-        'collegeId': roomCollegeId,
-        'createdAt': FieldValue.serverTimestamp(),
-        'expiresAt': Timestamp.fromDate(DateTime.now().add(const Duration(seconds: 90))),
+        'user_id': user.id,
+        'expires_at':
+            DateTime.now().add(const Duration(seconds: 90)).toIso8601String(),
       });
 
-      batch.update(userRef, {
-        'lastAnonMessage': FieldValue.serverTimestamp(),
-      });
-
-      await batch.commit();
       _lastSent = DateTime.now();
-
     } catch (e) {
       _showError('Message not sent. Try again.');
     } finally {
@@ -184,14 +188,13 @@ class _CollegeAnonChatScreenState extends State<CollegeAnonChatScreen> {
         child: Column(
           children: [
             Expanded(
-              child: StreamBuilder<QuerySnapshot>(
-                stream: FirebaseFirestore.instance
-                    .collection('anon_chats')
-                    .doc(widget.chatId)
-                    .collection('messages')
-                    .orderBy('createdAt', descending: true)
-                    .limit(50)
-                    .snapshots(),
+              child: StreamBuilder<List<Map<String, dynamic>>>(
+                stream: _db
+                    .from('anon_messages')
+                    .stream(primaryKey: ['id'])
+                    .eq('room_college_id', _roomCollegeId)
+                    .order('created_at', ascending: false)
+                    .limit(50),
                 builder: (context, snapshot) {
                   if (snapshot.hasError) {
                     return const Center(
@@ -211,11 +214,11 @@ class _CollegeAnonChatScreenState extends State<CollegeAnonChatScreen> {
                   }
 
                   final now = DateTime.now();
-                  final docs = snapshot.data!.docs.where((doc) {
-                    final data = doc.data() as Map<String, dynamic>;
-                    if (!data.containsKey('expiresAt')) return false;
-                    final expiresAt = (data['expiresAt'] as Timestamp).toDate();
-                    return expiresAt.isAfter(now);
+                  final docs = snapshot.data!.where((data) {
+                    final expiresRaw = data['expires_at'] as String?;
+                    if (expiresRaw == null) return false;
+                    final expiresAt = DateTime.tryParse(expiresRaw);
+                    return expiresAt != null && expiresAt.isAfter(now);
                   }).toList();
 
                   if (docs.isEmpty) {
@@ -229,12 +232,12 @@ class _CollegeAnonChatScreenState extends State<CollegeAnonChatScreen> {
                     padding: const EdgeInsets.fromLTRB(20, 100, 20, 20),
                     itemCount: docs.length,
                     itemBuilder: (_, i) {
-                      final data = docs[i].data() as Map<String, dynamic>;
-                      final expiresAt = (data['expiresAt'] as Timestamp).toDate();
+                      final data = docs[i];
+                      final expiresAt = DateTime.parse(data['expires_at'] as String);
                       final remaining = expiresAt.difference(now).inSeconds;
 
                       return _MessageBubble(
-                        anonId: data['anonId'] ?? 'ANON',
+                        anonId: data['anon_id'] ?? 'ANON',
                         text: data['text'] ?? '',
                         remaining: remaining > 0 ? remaining : 0,
                       );
