@@ -3,6 +3,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../feed/widgets/friend_button.dart';
 import '../settings/settings_screen.dart';
+import '../services/moderation_service.dart';
+import '../moderation/report_dialog.dart';
 import 'edit_profile_screen.dart';
 import 'user_posts_grid.dart';
 import 'friends_list_screen.dart';
@@ -43,7 +45,60 @@ class ProfileScreen extends StatelessWidget {
                   },
                 ),
               ]
-            : null,
+            : [
+                PopupMenuButton<String>(
+                  itemBuilder: (context) => const [
+                    PopupMenuItem(
+                      value: 'report',
+                      child: Text('Report user'),
+                    ),
+                    PopupMenuItem(
+                      value: 'block',
+                      child: Text('Block user'),
+                    ),
+                    PopupMenuItem(
+                      value: 'unblock',
+                      child: Text('Unblock user'),
+                    ),
+                  ],
+                  onSelected: (value) async {
+                    if (value == 'report') {
+                      await showReportDialog(
+                        context,
+                        targetType: 'user',
+                        targetId: userId,
+                      );
+                      return;
+                    }
+                    final messenger = ScaffoldMessenger.of(context);
+                    try {
+                      if (value == 'block') {
+                        await ModerationService.blockUser(userId);
+                        messenger.showSnackBar(
+                          const SnackBar(content: Text('User blocked')),
+                        );
+                      } else if (value == 'unblock') {
+                        await ModerationService.unblockUser(userId);
+                        messenger.showSnackBar(
+                          const SnackBar(content: Text('User unblocked')),
+                        );
+                      }
+                    } catch (e) {
+                      debugPrint('Block/unblock failed: $e');
+                      final already = e.toString().contains('23505');
+                      messenger.showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            already
+                                ? 'Already blocked.'
+                                : 'Something went wrong. Try again.',
+                          ),
+                        ),
+                      );
+                    }
+                  },
+                ),
+              ],
       ),
       body: StreamBuilder<List<Map<String, dynamic>>>(
         stream: Supabase.instance.client

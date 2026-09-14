@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../clubs/admin_club_requests_screen.dart';
 import '../services/friend_service.dart';
+import '../utils/dedupe_stream_rows.dart';
 
 class NotificationsScreen extends StatelessWidget {
   const NotificationsScreen({super.key});
@@ -67,7 +68,7 @@ class NotificationsScreen extends StatelessWidget {
             );
           }
 
-          final docs = snap.data!;
+          final docs = dedupeStreamRowsById(snap.data!);
 
           return ListView.builder(
             padding: const EdgeInsets.all(12),
@@ -147,10 +148,20 @@ class _ClubRequestTile extends StatelessWidget {
                     ),
                     child: const Text('Dismiss'),
                     onPressed: () async {
-                      await Supabase.instance.client
-                          .from('notifications')
-                          .delete()
-                          .eq('id', notificationId);
+                      final messenger = ScaffoldMessenger.of(context);
+                      try {
+                        await Supabase.instance.client
+                            .from('notifications')
+                            .delete()
+                            .eq('id', notificationId);
+                      } catch (e) {
+                        debugPrint('Dismiss notification failed: $e');
+                        messenger.showSnackBar(
+                          const SnackBar(
+                            content: Text('Could not dismiss. Try again.'),
+                          ),
+                        );
+                      }
                     },
                   ),
                 ),

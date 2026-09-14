@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../moderation/text_filter.dart';
+import '../utils/dedupe_stream_rows.dart';
 
 class ChatScreen extends StatefulWidget {
   final String peerUid;
@@ -20,6 +21,7 @@ class _ChatScreenState extends State<ChatScreen> {
   final String _currentUid = Supabase.instance.client.auth.currentUser!.id;
   String? _conversationId;
   late final Future<void> _ready;
+  bool _sending = false;
 
   SupabaseClient get _db => Supabase.instance.client;
 
@@ -99,6 +101,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _sendMessage() async {
+    if (_sending) return;
     final text = _controller.text.trim();
     if (text.isEmpty || _conversationId == null) return;
 
@@ -112,17 +115,33 @@ class _ChatScreenState extends State<ChatScreen> {
       return;
     }
 
+    setState(() => _sending = true);
     _controller.clear();
 
-    await _db.from('messages').insert({
-      'conversation_id': _conversationId,
-      'from_uid': _currentUid,
-      'to_uid': widget.peerUid,
-      'text': filterResult.cleanedText,
-      'status': 'sent',
-    });
-    // conversations.last_message/last_message_at is trigger-maintained
-    // (bump_conversation_last_message) -- no follow-up update needed.
+    try {
+      await _db.from('messages').insert({
+        'conversation_id': _conversationId,
+        'from_uid': _currentUid,
+        'to_uid': widget.peerUid,
+        'text': filterResult.cleanedText,
+        'status': 'sent',
+      });
+      // conversations.last_message/last_message_at is trigger-maintained
+      // (bump_conversation_last_message) -- no follow-up update needed.
+    } catch (e) {
+      debugPrint('Chat send failed: $e');
+      if (mounted) {
+        // Restore the text rather than silently losing it -- the controller
+        // was already cleared above for a snappy send-feel, so a failure
+        // must not leave the user re-typing a message that just vanished.
+        _controller.text = text;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Message not sent. Try again.')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
   }
 
   @override
@@ -170,6 +189,25 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Widget _buildChatBody(BuildContext context) {
+    final conversationId = _conversationId;
+    if (conversationId == null) {
+      // _ensureConversationExists() can complete without throwing yet still
+      // leave _conversationId null (its own catch block assumes any insert
+      // failure was a create-race and retries the same SELECT -- if the
+      // real cause was something else, e.g. a network failure, that retry
+      // comes back empty too). Surfacing that as a clear message here beats
+      // the null-assertion below crashing this screen's build.
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(24),
+          child: Text(
+            "Couldn't open this conversation. Go back and try again.",
+            textAlign: TextAlign.center,
+          ),
+        ),
+      );
+    }
+
     return Column(
       children: [
         Expanded(
@@ -177,7 +215,7 @@ class _ChatScreenState extends State<ChatScreen> {
             stream: _db
                 .from('messages')
                 .stream(primaryKey: ['id'])
-                .eq('conversation_id', _conversationId!)
+                .eq('conversation_id', conversationId)
                 .order('created_at', ascending: false)
                 .limit(50),
             builder: (_, snap) {
@@ -191,7 +229,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 return const Center(child: CircularProgressIndicator());
               }
 
-              final msgs = snap.data!;
+              final msgs = dedupeStreamRowsById(snap.data!);
 
               final hasUnseen = msgs.any((d) =>
                   d['to_uid'] == _currentUid && d['status'] == 'delivered');
@@ -221,14 +259,17 @@ class _ChatScreenState extends State<ChatScreen> {
             },
           ),
         ),
-        _InputBar(onSend: _sendMessage, controller: _controller),
+        _InputBar(
+          onSend: _sending ? null : _sendMessage,
+          controller: _controller,
+        ),
       ],
     );
   }
 }
 
 class _InputBar extends StatelessWidget {
-  final VoidCallback onSend;
+  final VoidCallback? onSend;
   final TextEditingController controller;
 
   const _InputBar({required this.onSend, required this.controller});

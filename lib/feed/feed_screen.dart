@@ -11,6 +11,8 @@ import 'post_user_header.dart';
 import 'add_create_selector_sheet.dart';
 import 'events_screen.dart';
 import '../auth/services/college_detector.dart';
+import '../utils/dedupe_stream_rows.dart';
+import '../moderation/report_dialog.dart';
 
 // Moments is restored in the codebase (screens, storage upload path,
 // Postgres schema/RLS) but intentionally not user-reachable: it's not
@@ -112,30 +114,51 @@ class _MergedFeed extends StatelessWidget {
     required this.storage,
   });
 
-  Future<void> _toggleLike(String postId) async {
+  // Keyed by postId rather than held as instance state -- _MergedFeed is a
+  // StatelessWidget rebuilt on every feed stream emission, so an instance
+  // field would never survive between taps. A static set shared across
+  // rebuilds is the smallest guard against the same postId's like button
+  // being double-tapped before the first request resolves, without
+  // converting the whole feed card tree to Stateful just for this.
+  static final Set<String> _pendingLikes = <String>{};
+
+  Future<void> _toggleLike(BuildContext context, String postId) async {
+    if (_pendingLikes.contains(postId)) return;
+    _pendingLikes.add(postId);
     final supabase = Supabase.instance.client;
 
-    final existing = await supabase
-        .from('post_likes')
-        .select('id')
-        .eq('post_id', postId)
-        .eq('user_id', uid)
-        .limit(1);
-
-    if (existing.isNotEmpty) {
-      await supabase
+    try {
+      final existing = await supabase
           .from('post_likes')
-          .delete()
+          .select('id')
           .eq('post_id', postId)
-          .eq('user_id', uid);
-    } else {
-      await supabase.from('post_likes').insert({
-        'post_id': postId,
-        'user_id': uid,
-      });
+          .eq('user_id', uid)
+          .limit(1);
+
+      if (existing.isNotEmpty) {
+        await supabase
+            .from('post_likes')
+            .delete()
+            .eq('post_id', postId)
+            .eq('user_id', uid);
+      } else {
+        await supabase.from('post_likes').insert({
+          'post_id': postId,
+          'user_id': uid,
+        });
+      }
+      // likes_count is trigger-maintained (bump_post_likes_count) — no
+      // client-side increment needed or possible.
+    } catch (e) {
+      debugPrint('Toggle like failed: $e');
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not update like. Try again.')),
+        );
+      }
+    } finally {
+      _pendingLikes.remove(postId);
     }
-    // likes_count is trigger-maintained (bump_post_likes_count) — no
-    // client-side increment needed or possible.
   }
 
   @override
@@ -195,7 +218,7 @@ class _MergedFeed extends StatelessWidget {
               return const Center(child: CircularProgressIndicator());
             }
 
-            final docs = snap.data!;
+            final docs = dedupeStreamRowsById(snap.data!);
             if (docs.isEmpty) {
               return const Center(
                 child: Text(
@@ -248,6 +271,24 @@ class _MergedFeed extends StatelessWidget {
                                 builder: (_) => ProfileScreen(userId: userId),
                               ),
                             ),
+                            trailing: userId == uid
+                                ? null
+                                : PopupMenuButton<String>(
+                                    icon: const Icon(Icons.more_vert, size: 20),
+                                    itemBuilder: (context) => [
+                                      const PopupMenuItem(
+                                        value: 'report',
+                                        child: Text('Report post'),
+                                      ),
+                                    ],
+                                    onSelected: (_) {
+                                      showReportDialog(
+                                        context,
+                                        targetType: 'post',
+                                        targetId: postId,
+                                      );
+                                    },
+                                  ),
                           ),
                           ClipRRect(
                             borderRadius: BorderRadius.circular(18),
@@ -279,7 +320,7 @@ class _MergedFeed extends StatelessWidget {
                                       ? Colors.redAccent
                                       : Colors.white70,
                                   count: likesCount,
-                                  onTap: () => _toggleLike(postId),
+                                  onTap: () => _toggleLike(context, postId),
                                 ),
                                 const SizedBox(width: 18),
                                 _ActionButton(

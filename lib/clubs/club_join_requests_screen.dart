@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../utils/dedupe_stream_rows.dart';
+
 class ClubJoinRequestsScreen extends StatelessWidget {
   final String clubId;
 
@@ -30,8 +32,9 @@ class ClubJoinRequestsScreen extends StatelessWidget {
             );
           }
 
-          final pending =
-              (snap.data ?? []).where((r) => r['status'] == 'pending').toList();
+          final pending = dedupeStreamRowsById(snap.data ?? [])
+              .where((r) => r['status'] == 'pending')
+              .toList();
 
           if (pending.isEmpty) {
             return const _EmptyState();

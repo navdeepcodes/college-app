@@ -153,6 +153,15 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
         MaterialPageRoute(builder: (_) => const BottomNavShell()),
         (_) => false,
       );
+    } catch (e) {
+      debugPrint('Profile setup failed: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not save your profile. Try again.'),
+          ),
+        );
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }

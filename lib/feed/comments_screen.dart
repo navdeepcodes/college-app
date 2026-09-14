@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../moderation/text_filter.dart';
+import '../utils/dedupe_stream_rows.dart';
 
 class CommentsScreen extends StatefulWidget {
   final String postId;
@@ -46,7 +47,8 @@ class _CommentsScreenState extends State<CommentsScreen> {
       });
 
       _controller.clear();
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Comment send failed: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -97,7 +99,9 @@ class _CommentsScreenState extends State<CommentsScreen> {
                   );
                 }
 
-                if (snap.data!.isEmpty) {
+                final comments = dedupeStreamRowsById(snap.data!);
+
+                if (comments.isEmpty) {
                   return const Center(
                     child: Text(
                       'No comments yet',
@@ -109,9 +113,9 @@ class _CommentsScreenState extends State<CommentsScreen> {
                 return ListView.builder(
                   reverse: true,
                   padding: const EdgeInsets.only(bottom: 12),
-                  itemCount: snap.data!.length,
+                  itemCount: comments.length,
                   itemBuilder: (context, index) {
-                    final data = snap.data![index];
+                    final data = comments[index];
                     return _CommentTile(
                       userId: data['user_id'],
                       text: data['text'],

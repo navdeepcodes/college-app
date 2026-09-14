@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../services/friend_service.dart';
 
-enum _Relationship { loading, friends, requestSent, requestReceived, none }
+enum _Relationship { loading, friends, requestSent, requestReceived, none, error }
 
 class FriendButton extends StatefulWidget {
   final String targetUserId;
@@ -35,50 +35,61 @@ class _FriendButtonState extends State<FriendButton> {
   List<String> get _sortedPair => [_currentUid, widget.targetUserId]..sort();
 
   Future<void> _loadRelationship() async {
-    final pair = _sortedPair;
-    // A nonexistent friendship reads back as an empty list, not a thrown
-    // error — no try/catch workaround needed here, unlike the Firestore
-    // version (see FriendService._areFriends for the full explanation).
-    final friendsRows = await _db
-        .from('friendships')
-        .select('id')
-        .eq('user_a', pair[0])
-        .eq('user_b', pair[1])
-        .limit(1);
-    if (!mounted) return;
+    if (mounted) setState(() => _relationship = _Relationship.loading);
+    try {
+      final pair = _sortedPair;
+      // A nonexistent friendship reads back as an empty list, not a thrown
+      // error — no try/catch workaround needed for THAT here, unlike the
+      // Firestore version (see FriendService._areFriends for the full
+      // explanation). The try/catch here instead guards against a genuine
+      // failure (network blip, RLS reject) leaving this stuck on the
+      // loading spinner forever with no recovery — the exact bug class
+      // found live in bottom_nav_shell.dart's null-user branch.
+      final friendsRows = await _db
+          .from('friendships')
+          .select('id')
+          .eq('user_a', pair[0])
+          .eq('user_b', pair[1])
+          .limit(1);
+      if (!mounted) return;
 
-    if (friendsRows.isNotEmpty) {
-      setState(() => _relationship = _Relationship.friends);
-      return;
+      if (friendsRows.isNotEmpty) {
+        setState(() => _relationship = _Relationship.friends);
+        return;
+      }
+
+      final outgoing = await _db
+          .from('friend_requests')
+          .select('id')
+          .eq('from_uid', _currentUid)
+          .eq('to_uid', widget.targetUserId)
+          .eq('status', 'pending')
+          .limit(1);
+      if (!mounted) return;
+
+      if (outgoing.isNotEmpty) {
+        setState(() => _relationship = _Relationship.requestSent);
+        return;
+      }
+
+      final incoming = await _db
+          .from('friend_requests')
+          .select('id')
+          .eq('from_uid', widget.targetUserId)
+          .eq('to_uid', _currentUid)
+          .eq('status', 'pending')
+          .limit(1);
+      if (!mounted) return;
+
+      setState(() {
+        _relationship = incoming.isNotEmpty
+            ? _Relationship.requestReceived
+            : _Relationship.none;
+      });
+    } catch (e) {
+      debugPrint('FriendButton relationship load failed: $e');
+      if (mounted) setState(() => _relationship = _Relationship.error);
     }
-
-    final outgoing = await _db
-        .from('friend_requests')
-        .select('id')
-        .eq('from_uid', _currentUid)
-        .eq('to_uid', widget.targetUserId)
-        .eq('status', 'pending')
-        .limit(1);
-    if (!mounted) return;
-
-    if (outgoing.isNotEmpty) {
-      setState(() => _relationship = _Relationship.requestSent);
-      return;
-    }
-
-    final incoming = await _db
-        .from('friend_requests')
-        .select('id')
-        .eq('from_uid', widget.targetUserId)
-        .eq('to_uid', _currentUid)
-        .eq('status', 'pending')
-        .limit(1);
-    if (!mounted) return;
-
-    setState(() {
-      _relationship =
-          incoming.isNotEmpty ? _Relationship.requestReceived : _Relationship.none;
-    });
   }
 
   Future<void> _handleTap() async {
@@ -139,6 +150,14 @@ class _FriendButtonState extends State<FriendButton> {
           padding: EdgeInsets.all(8),
           child: CircularProgressIndicator(strokeWidth: 2),
         ),
+      );
+    }
+
+    if (_relationship == _Relationship.error) {
+      return IconButton(
+        icon: const Icon(Icons.refresh, size: 20),
+        tooltip: 'Retry',
+        onPressed: _loadRelationship,
       );
     }
 

@@ -464,5 +464,89 @@ test("8a A creates a notification to B (sender can't read it back — correct)",
 test("8b B (the recipient) can read their own notification", s8b)
 test("8c C cannot read B's notifications", s8c)
 
+print("\n== Step 9: moderation (reports/blocks) ==")
+report_id = {}
+
+
+def s9a():
+    st, b = rest("POST", "reports", jwt=JWT_A,
+                 body={"reporter_uid": UID_A, "target_type": "user", "target_id": UID_C, "reason": "spam"})
+    expect_ok(st, b, "s9a")
+    report_id["v"] = b[0]["id"]
+
+
+def s9b():
+    # forging someone else's reporter_uid must be denied
+    st, b = rest("POST", "reports", jwt=JWT_A,
+                 body={"reporter_uid": UID_B, "target_type": "user", "target_id": UID_C, "reason": "forged"})
+    expect_denied(st, b, "s9b")
+
+
+def s9c():
+    # C is neither the reporter nor an admin -- must not see A's report
+    st, b = rest("GET", "reports", jwt=JWT_C, params={"id": f"eq.{report_id['v']}"})
+    expect_ok(st, b, "s9c")
+    assert b == [], f"s9c: C must not read A's report, got {b}"
+
+
+def s9d():
+    # a non-admin (A, the reporter) cannot dismiss/review their own report --
+    # only a platform admin transitions status. The service-role key stands
+    # in for a real platform-admin account exactly as s5c already does.
+    st, b = rest("PATCH", "reports", jwt=JWT_A,
+                 body={"status": "dismissed"}, params={"id": f"eq.{report_id['v']}"})
+    expect_ok(st, b, "s9d")
+    assert b == [], f"s9d: non-admin status update should affect 0 rows (RLS-filtered), got {b}"
+
+
+def s9e():
+    st, b = rest("POST", "blocks", jwt=JWT_B, body={"blocker_uid": UID_B, "blocked_uid": UID_C})
+    expect_ok(st, b, "s9e")
+
+
+def s9f():
+    # the blocked party (C) must not be able to friend-request the blocker
+    # (B) -- this is the exact bug found live: the naive first version of
+    # this check was itself RLS-filtered out from the blocked user's own
+    # point of view (fixed by the is_blocked_pair() SECURITY DEFINER helper).
+    st, b = rest("POST", "friend_requests", jwt=JWT_C, body={"from_uid": UID_C, "to_uid": UID_B})
+    expect_denied(st, b, "s9f")
+
+
+def s9g():
+    # nor the reverse direction (blocker -> blocked)
+    st, b = rest("POST", "friend_requests", jwt=JWT_B, body={"from_uid": UID_B, "to_uid": UID_C})
+    expect_denied(st, b, "s9g")
+
+
+def s9h():
+    # the blocked party must not be able to remove the block that targets
+    # them -- only the blocker can unblock.
+    st, b = rest("DELETE", "blocks", jwt=JWT_C,
+                 params={"blocker_uid": f"eq.{UID_B}", "blocked_uid": f"eq.{UID_C}"},
+                 extra_headers={"Prefer": "return=representation"})
+    expect_ok(st, b, "s9h")
+    assert b == [], f"s9h: blocked party's unblock attempt should affect 0 rows, got {b}"
+
+
+def s9i():
+    # the blocker CAN unblock their own block.
+    st, b = rest("DELETE", "blocks", jwt=JWT_B,
+                 params={"blocker_uid": f"eq.{UID_B}", "blocked_uid": f"eq.{UID_C}"},
+                 extra_headers={"Prefer": "return=representation"})
+    expect_ok(st, b, "s9i")
+    assert len(b) == 1, f"s9i: blocker's own unblock should remove exactly one row, got {b}"
+
+
+test("9a A reports C (as self)", s9a)
+test("9b forging another user's reporter_uid denied", s9b)
+test("9c C cannot read A's report (not reporter, not admin)", s9c)
+test("9d non-admin cannot change a report's status", s9d)
+test("9e B blocks C", s9e)
+test("9f blocked party (C) cannot friend-request the blocker (B)", s9f)
+test("9g blocker (B) cannot friend-request the blocked party (C) either", s9g)
+test("9h blocked party cannot unblock themselves", s9h)
+test("9i blocker can unblock their own block", s9i)
+
 print(f"\n{passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

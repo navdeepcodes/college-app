@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'club_profile_screen.dart';
 import 'create_club_screen.dart';
+import '../utils/dedupe_stream_rows.dart';
 
 class ClubsScreen extends StatefulWidget {
   const ClubsScreen({super.key});
@@ -177,8 +178,9 @@ class _YourClubs extends StatelessWidget {
           );
         }
 
-        final clubIds =
-            snap.data!.map((e) => e['club_id'] as String).toList();
+        final clubIds = dedupeStreamRowsById(snap.data!)
+            .map((e) => e['club_id'] as String)
+            .toList();
 
         return _ClubGrid(clubIds: clubIds, isAdmin: false);
       },
@@ -220,7 +222,9 @@ class _ExploreClubs extends StatelessWidget {
         }
 
         return _ClubGrid(
-          clubIds: snap.data!.map((e) => e['id'] as String).toList(),
+          clubIds: dedupeStreamRowsById(snap.data!)
+              .map((e) => e['id'] as String)
+              .toList(),
           isAdmin: isAdmin,
         );
       },

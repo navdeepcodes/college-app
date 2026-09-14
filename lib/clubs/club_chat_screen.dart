@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../moderation/text_filter.dart';
+import '../utils/dedupe_stream_rows.dart';
 
 class ClubChatScreen extends StatefulWidget {
   final String clubId;
@@ -50,13 +51,29 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
     setState(() => _sending = true);
     _controller.clear();
 
-    await Supabase.instance.client.from('club_messages').insert({
-      'club_id': widget.clubId,
-      'user_id': _uid,
-      'text': filterResult.cleanedText,
-    });
-
-    if (mounted) setState(() => _sending = false);
+    try {
+      await Supabase.instance.client.from('club_messages').insert({
+        'club_id': widget.clubId,
+        'user_id': _uid,
+        'text': filterResult.cleanedText,
+      });
+    } catch (e) {
+      debugPrint('Club chat send failed: $e');
+      if (mounted) {
+        // Restore the text -- it was cleared above for a snappy send-feel,
+        // so a failure must not leave the user re-typing a message that
+        // just silently vanished (this had no catch block at all before,
+        // so _sending also stayed stuck true forever on any failure,
+        // permanently disabling the send button for the rest of the
+        // screen's lifetime).
+        _controller.text = text;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Message not sent. Try again.')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
   }
 
   @override
@@ -99,7 +116,7 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
                   );
                 }
 
-                final docs = snap.data!;
+                final docs = dedupeStreamRowsById(snap.data!);
 
                 if (docs.isEmpty) {
                   return const Center(

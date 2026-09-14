@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:college_app/services/storage_service.dart';
 import 'package:college_app/feed/post_detail_screen.dart';
+import 'package:college_app/utils/dedupe_stream_rows.dart';
 
 class UserPostsGrid extends StatelessWidget {
   final String uid;
@@ -51,7 +52,7 @@ class UserPostsGrid extends StatelessWidget {
           );
         }
 
-        final posts = snapshot.data!;
+        final posts = dedupeStreamRowsById(snapshot.data!);
 
         return GridView.builder(
           shrinkWrap: true,

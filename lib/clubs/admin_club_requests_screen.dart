@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../utils/dedupe_stream_rows.dart';
+
 class AdminClubRequestsScreen extends StatelessWidget {
   const AdminClubRequestsScreen({super.key});
 
@@ -29,7 +31,7 @@ class AdminClubRequestsScreen extends StatelessWidget {
             return const Center(child: CircularProgressIndicator());
           }
 
-          final docs = snap.data ?? [];
+          final docs = dedupeStreamRowsById(snap.data ?? []);
 
           if (docs.isEmpty) {
             return const Center(

@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../app/auth_gate.dart';
 import '../clubs/admin_club_requests_screen.dart';
+import '../moderation/reports_admin_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -145,6 +146,19 @@ class SettingsScreen extends StatelessWidget {
                         context,
                         MaterialPageRoute(
                           builder: (_) => const AdminClubRequestsScreen(),
+                        ),
+                      );
+                    },
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.flag),
+                    title: const Text('Reports'),
+                    subtitle: const Text('Review flagged content and users'),
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const ReportsAdminScreen(),
                         ),
                       );
                     },
