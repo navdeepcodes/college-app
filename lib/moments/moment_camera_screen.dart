@@ -158,6 +158,17 @@ class _MomentCameraScreenState extends State<MomentCameraScreen>
     await supabase.storage.from('moments').upload(path, File(localPath));
     final mediaUrl = supabase.storage.from('moments').getPublicUrl(path);
 
+    // .toUtc() matters even though Moments is currently disabled
+    // (kMomentsEnabled = false, unreachable by any user): found the same
+    // bug live in college_anon_chat_screen.dart's identical
+    // DateTime.now().add(...).toIso8601String() pattern, where the
+    // missing UTC conversion sends a local-time string Postgres reads as
+    // if it already were UTC. moments has no RLS time-window check to
+    // reject against, so this wouldn't hard-fail an insert the way the
+    // anon chat one did -- but it would silently store an expires_at off
+    // by the device's UTC offset. Fixed for consistency while the bug
+    // class was fresh; not a live-reproduced failure since this screen
+    // isn't reachable today.
     await supabase.from('moments').insert({
       'user_id': user.id,
       'anon_id': anonId,
@@ -165,8 +176,10 @@ class _MomentCameraScreenState extends State<MomentCameraScreen>
       'media_url': mediaUrl,
       'is_video': isVideo,
       'visibility': visibility,
-      'expires_at':
-          DateTime.now().add(const Duration(hours: 3)).toIso8601String(),
+      'expires_at': DateTime.now()
+          .toUtc()
+          .add(const Duration(hours: 3))
+          .toIso8601String(),
     });
   }
 

@@ -117,13 +117,26 @@ class _CollegeAnonChatScreenState extends State<CollegeAnonChatScreen> {
     _msgController.clear();
 
     try {
+      // .toUtc() is load-bearing, not cosmetic: anon_messages_insert's RLS
+      // (supabase/migrations/20260914000002_rls_policies.sql) requires
+      // expires_at within [now()-120s, now()+900s] of the *server's* UTC
+      // clock. DateTime.now() is local device time; toIso8601String() on
+      // a non-UTC DateTime omits the offset entirely, so Postgres reads
+      // it as if it already were UTC. Found live, on-device, on an
+      // Asia/Kolkata (UTC+5:30) emulator -- exactly the timezone every
+      // real user of this app (NMIT/RVCE/BMS/PES are all Bangalore) will
+      // actually be in: every send failed with a generic "Message not
+      // sent," the +5:30 skew blowing straight through the +900s upper
+      // bound, RLS silently rejecting the insert.
       await _db.from('anon_messages').insert({
         'room_college_id': roomCollegeId,
         'anon_id': _anonId,
         'text': textToUpload,
         'user_id': user.id,
-        'expires_at':
-            DateTime.now().add(const Duration(seconds: 90)).toIso8601String(),
+        'expires_at': DateTime.now()
+            .toUtc()
+            .add(const Duration(seconds: 90))
+            .toIso8601String(),
       });
 
       _lastSent = DateTime.now();
@@ -214,11 +227,23 @@ class _CollegeAnonChatScreenState extends State<CollegeAnonChatScreen> {
                   }
 
                   final now = DateTime.now();
+                  // Dedupe by id: found live, on-device, a freshly-sent
+                  // message rendering twice even though only one row
+                  // exists in the database (confirmed directly) -- the
+                  // underlying .stream() can emit the same row from both
+                  // its initial fetch and the realtime INSERT event for
+                  // it before its own internal cache reconciles by
+                  // primary key, and that transient duplicate didn't
+                  // self-correct on the next snapshot either. Collapsing
+                  // by id here is correct regardless of which layer
+                  // produces the duplicate.
+                  final seen = <Object?>{};
                   final docs = snapshot.data!.where((data) {
                     final expiresRaw = data['expires_at'] as String?;
                     if (expiresRaw == null) return false;
                     final expiresAt = DateTime.tryParse(expiresRaw);
-                    return expiresAt != null && expiresAt.isAfter(now);
+                    if (expiresAt == null || !expiresAt.isAfter(now)) return false;
+                    return seen.add(data['id']);
                   }).toList();
 
                   if (docs.isEmpty) {
