@@ -125,16 +125,39 @@ class _UserBootstrapState extends State<_UserBootstrap> {
         // collegeIdFromEmail(email)). anonId is minted here ONCE so anon
         // chat works for every user, not just signup-screen users — same
         // contract as the Firestore version.
-        await client.from('profiles').insert({
-          'id': widget.userId,
-          'email': widget.email,
-          'college_id': collegeIdForEmail(widget.email),
-          'anon_id': anonDisplayId(),
-          'profile_completed': false,
-        });
+        try {
+          await client.from('profiles').insert({
+            'id': widget.userId,
+            'email': widget.email,
+            'college_id': collegeIdForEmail(widget.email),
+            'anon_id': anonDisplayId(),
+            'profile_completed': false,
+          });
+        } on PostgrestException catch (e) {
+          // Confirmed live on-device (not a theoretical worry): the auth
+          // state stream can fire this bootstrap from more than one
+          // still-mounted AuthGate at once right after a real sign-in
+          // (e.g. the instance beneath a just-popped LoginScreen reacting
+          // to the same event a fraction of a second before its own route
+          // is torn down) — two concurrent inserts for the same id, one
+          // wins, the other hits profiles_pkey. That's not a real
+          // failure: the row exists either way, so treat exactly this
+          // error as "someone else already created it" and fall through
+          // to re-read it, rather than surfacing the retry screen for a
+          // race that isn't actually broken.
+          if (e.code != '23505') rethrow;
+        }
 
         if (!mounted) return;
-        setState(() => _profileCompleted = false);
+        final freshRows = await client
+            .from('profiles')
+            .select()
+            .eq('id', widget.userId)
+            .limit(1);
+        setState(() {
+          _profileCompleted =
+              freshRows.isNotEmpty && freshRows.first['profile_completed'] == true;
+        });
         return;
       }
 

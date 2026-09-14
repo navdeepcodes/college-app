@@ -4,7 +4,13 @@ import java.io.FileInputStream
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
-    id("com.google.gms.google-services")
+    // google-services plugin removed: the app no longer uses any Firebase
+    // package (see docs/supabase-migration-status.md — full Dart-layer
+    // cutover to Supabase). Applying this plugin with no Firebase SDK
+    // consuming it served no purpose and would have required a real
+    // android/app/google-services.json (never fabricated, never
+    // available) just to build at all — removing it actually unblocks
+    // the Android build rather than risking it.
     // Must come after the Android and Kotlin plugins. Was entirely missing —
     // see the comment in ../settings.gradle.kts.
     id("dev.flutter.flutter-gradle-plugin")

@@ -46,7 +46,8 @@ plugins {
     id("com.android.application") version "8.11.1" apply false
     id("com.android.library") version "8.11.1" apply false
     id("org.jetbrains.kotlin.android") version "2.2.20" apply false
-    id("com.google.gms.google-services") version "4.4.1" apply false
+    // google-services plugin declaration removed — see the comment in
+    // app/build.gradle.kts. No Firebase package remains in pubspec.yaml.
 }
 
 // No dependencyResolutionManagement block: this project had one declaring
