@@ -52,8 +52,11 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
 
       await supabase.storage.from('clubs').upload(filePath, _idCardImage!);
 
-      final idCardUrl = supabase.storage.from('clubs').getPublicUrl(filePath);
-
+      // Stores the storage PATH, not a public URL: the clubs bucket is
+      // private (ID card photos are personal documents, reviewed only by
+      // platform admins), so admin_club_requests_screen.dart resolves this
+      // into a short-lived signed URL on demand instead of rendering it
+      // directly.
       final requestRow = await supabase
           .from('club_requests')
           .insert({
@@ -62,7 +65,7 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
             'description': _descriptionController.text.trim(),
             'phone': _phoneController.text.trim(),
             'usn': _usnController.text.trim(),
-            'id_card_url': idCardUrl,
+            'id_card_url': filePath,
           })
           .select()
           .single();

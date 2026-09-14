@@ -139,24 +139,7 @@ class _ClubRequestCardState extends State<_ClubRequestCard> {
             Text('Phone: ${data['phone']}'),
             Text('USN: ${data['usn']}'),
             const SizedBox(height: 12),
-            if (data['id_card_url'] != null)
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: Image.network(
-                  data['id_card_url'],
-                  height: 160,
-                  width: double.infinity,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) {
-                    return const Center(
-                      child: Text(
-                        'Unable to load ID card',
-                        style: TextStyle(color: Colors.white54),
-                      ),
-                    );
-                  },
-                ),
-              ),
+            if (data['id_card_url'] != null) _IdCardPreview(path: data['id_card_url']),
             const SizedBox(height: 12),
             Row(
               children: [
@@ -184,6 +167,59 @@ class _ClubRequestCardState extends State<_ClubRequestCard> {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// The `clubs` bucket is private (ID card photos are personal documents;
+/// see storage RLS in 20260914000012_clubs_bucket_private.sql), so
+/// `data['id_card_url']` is a storage path, not a fetchable URL. A signed
+/// URL is minted on demand, scoped to this admin's session, and expires
+/// shortly after -- never persisted or shown to anyone but the admin
+/// viewing this screen right now.
+class _IdCardPreview extends StatelessWidget {
+  final String path;
+  const _IdCardPreview({required this.path});
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<String>(
+      future: Supabase.instance.client.storage
+          .from('clubs')
+          .createSignedUrl(path, 300),
+      builder: (context, snap) {
+        if (snap.connectionState == ConnectionState.waiting) {
+          return const SizedBox(
+            height: 160,
+            child: Center(child: CircularProgressIndicator()),
+          );
+        }
+        if (snap.hasError || !snap.hasData) {
+          return const Center(
+            child: Text(
+              'Unable to load ID card',
+              style: TextStyle(color: Colors.white54),
+            ),
+          );
+        }
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: Image.network(
+            snap.data!,
+            height: 160,
+            width: double.infinity,
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) {
+              return const Center(
+                child: Text(
+                  'Unable to load ID card',
+                  style: TextStyle(color: Colors.white54),
+                ),
+              );
+            },
+          ),
+        );
+      },
     );
   }
 }
