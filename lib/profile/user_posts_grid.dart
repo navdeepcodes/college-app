@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:college_app/services/storage_service.dart';
 import 'package:college_app/feed/post_detail_screen.dart';
@@ -16,13 +16,13 @@ class UserPostsGrid extends StatelessWidget {
   Widget build(BuildContext context) {
     final storage = StorageService();
 
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('posts')
-          .where('userId', isEqualTo: uid)
-          .orderBy('createdAt', descending: true)
-          .limit(60)
-          .snapshots(),
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: Supabase.instance.client
+          .from('posts')
+          .stream(primaryKey: ['id'])
+          .eq('user_id', uid)
+          .order('created_at', ascending: false)
+          .limit(60),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           return const Padding(
@@ -41,7 +41,7 @@ class UserPostsGrid extends StatelessWidget {
           );
         }
 
-        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+        if (!snapshot.hasData || snapshot.data!.isEmpty) {
           return const Padding(
             padding: EdgeInsets.all(40),
             child: Text(
@@ -51,7 +51,7 @@ class UserPostsGrid extends StatelessWidget {
           );
         }
 
-        final posts = snapshot.data!.docs;
+        final posts = snapshot.data!;
 
         return GridView.builder(
           shrinkWrap: true,
@@ -64,10 +64,9 @@ class UserPostsGrid extends StatelessWidget {
             crossAxisSpacing: 2,
           ),
           itemBuilder: (context, index) {
-            final doc = posts[index];
-            final data = doc.data() as Map<String, dynamic>;
+            final data = posts[index];
 
-            final mediaPath = data['mediaPath'] as String?;
+            final mediaPath = data['media_path'] as String?;
             if (mediaPath == null || mediaPath.isEmpty) {
               return const SizedBox.shrink();
             }
@@ -80,7 +79,7 @@ class UserPostsGrid extends StatelessWidget {
                   context,
                   MaterialPageRoute(
                     builder: (_) => PostDetailScreen(
-                      postId: doc.id,
+                      postId: data['id'],
                       data: data,
                     ),
                   ),
@@ -90,8 +89,6 @@ class UserPostsGrid extends StatelessWidget {
                 child: Image.network(
                   imageUrl,
                   fit: BoxFit.cover,
-
-                  // 🔹 SMOOTH LOADING
                   loadingBuilder: (context, child, loadingProgress) {
                     if (loadingProgress == null) return child;
 
@@ -106,8 +103,6 @@ class UserPostsGrid extends StatelessWidget {
                       ),
                     );
                   },
-
-                  // 🔒 FRIENDS-ONLY / ERROR STATE
                   errorBuilder: (_, __, ___) {
                     return Container(
                       color: Colors.grey.shade900,

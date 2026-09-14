@@ -1,4 +1,4 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 enum SendFriendRequestResult {
   sent,
@@ -8,40 +8,26 @@ enum SendFriendRequestResult {
 }
 
 class FriendService {
-  static final _firestore = FirebaseFirestore.instance;
+  static SupabaseClient get _db => Supabase.instance.client;
 
-  /// Deterministic id for the `friends` edge between two users — order
-  /// independent. Prevents concurrent/duplicate accepts from creating two
-  /// friendship docs (and double-firing the friendCreated counter function):
-  /// a second write to the same id is a rules `update`, and the friends
-  /// collection denies all updates.
-  static String _pairId(String a, String b) {
-    final sorted = [a, b]..sort();
-    return '${sorted[0]}_${sorted[1]}';
-  }
+  static List<String> _sortedPair(String a, String b) => [a, b]..sort();
 
   static Future<bool> _areFriends(String a, String b) async {
-    try {
-      final doc = await _firestore.collection('friends').doc(_pairId(a, b)).get();
-      return doc.exists;
-    } catch (_) {
-      // firestore.rules' friends.read dereferences resource.data to check
-      // membership — for a pair that was never friends (the common case),
-      // the doc doesn't exist, resource is null, and that dereference
-      // throws rather than evaluating to false. get() on a nonexistent
-      // friends doc therefore raises permission-denied instead of
-      // returning exists:false. Both callers here only ever check a pair
-      // that includes the caller, so any failure means "not friends."
-      return false;
-    }
+    final pair = _sortedPair(a, b);
+    final rows = await _db
+        .from('friendships')
+        .select('id')
+        .eq('user_a', pair[0])
+        .eq('user_b', pair[1])
+        .limit(1);
+    // Unlike the old Firestore version, a nonexistent friendship reads
+    // back as an empty list here, not a thrown permission error -- see
+    // docs/supabase-schema.md for why that whole bug class (three
+    // separate incidents on the Firestore side) cannot recur in Postgres.
+    return rows.isNotEmpty;
   }
 
   // ================= SEND REQUEST =================
-  /// Sends a friend request from [fromUid] to [toUid]. If [toUid] already
-  /// sent [fromUid] a pending request, completes the friendship immediately
-  /// instead of creating a second, crossed request (matches how every
-  /// mainstream friend-request UI behaves, and avoids the duplicate-request
-  /// state the old unconditional `add()` could create).
   static Future<SendFriendRequestResult> sendRequest({
     required String fromUid,
     required String toUid,
@@ -50,53 +36,46 @@ class FriendService {
       return SendFriendRequestResult.alreadyFriends;
     }
 
-    // Reverse-direction pending request: they already asked us.
-    final incoming = await _firestore
-        .collection('friend_requests')
-        .where('fromUid', isEqualTo: toUid)
-        .where('toUid', isEqualTo: fromUid)
-        .where('status', isEqualTo: 'pending')
-        .limit(1)
-        .get();
+    final incoming = await _db
+        .from('friend_requests')
+        .select('id')
+        .eq('from_uid', toUid)
+        .eq('to_uid', fromUid)
+        .eq('status', 'pending')
+        .limit(1);
 
-    if (incoming.docs.isNotEmpty) {
+    if (incoming.isNotEmpty) {
       await acceptRequest(
-        requestId: incoming.docs.first.id,
+        requestId: incoming.first['id'],
         fromUid: toUid,
         toUid: fromUid,
       );
       return SendFriendRequestResult.acceptedIncoming;
     }
 
-    // Our own pending request, already sent.
-    final existing = await _firestore
-        .collection('friend_requests')
-        .where('fromUid', isEqualTo: fromUid)
-        .where('toUid', isEqualTo: toUid)
-        .where('status', isEqualTo: 'pending')
-        .limit(1)
-        .get();
+    final existing = await _db
+        .from('friend_requests')
+        .select('id')
+        .eq('from_uid', fromUid)
+        .eq('to_uid', toUid)
+        .eq('status', 'pending')
+        .limit(1);
 
-    if (existing.docs.isNotEmpty) {
+    if (existing.isNotEmpty) {
       return SendFriendRequestResult.alreadyPending;
     }
 
-    final requestRef = await _firestore.collection('friend_requests').add({
-      'fromUid': fromUid,
-      'toUid': toUid,
-      'status': 'pending',
-      'createdAt': FieldValue.serverTimestamp(),
-    });
+    final requestRow = await _db
+        .from('friend_requests')
+        .insert({'from_uid': fromUid, 'to_uid': toUid})
+        .select()
+        .single();
 
-    // Surface it: notifications_screen.dart's friend-request tile already
-    // exists but was unreachable because nothing ever wrote this doc.
-    await _firestore.collection('notifications').add({
+    await _db.from('notifications').insert({
       'type': 'friend_request',
-      'requestId': requestRef.id,
-      'fromUid': fromUid,
-      'toUid': toUid,
-      'createdAt': FieldValue.serverTimestamp(),
-      'read': false,
+      'request_id': requestRow['id'],
+      'from_uid': fromUid,
+      'to_uid': toUid,
     });
 
     return SendFriendRequestResult.sent;
@@ -108,58 +87,43 @@ class FriendService {
     required String fromUid,
     required String toUid,
   }) async {
-    final requestRef = _firestore.collection('friend_requests').doc(requestId);
-
     if (await _areFriends(fromUid, toUid)) {
-      // Already friends (e.g. both sides accepted concurrently) — just
-      // clear the now-redundant request instead of a doomed rules-denied
-      // write to an existing friends doc.
-      await requestRef.delete();
+      await _db.from('friend_requests').delete().eq('id', requestId);
       await _deleteRequestNotifications(requestId);
       return;
     }
 
-    // Not a batch: the friends.create rule verifies sourceRequestId still
-    // points at a *pending* friend_requests doc (consent check — see
-    // firestore.rules), so the request must still exist at the moment the
-    // friends doc is created. Deleting it first, or in the same batch where
-    // ordering isn't guaranteed from the rule's point of view, would make
-    // the create unverifiable. Create first, then clean up.
-    final friendsRef = _firestore.collection('friends').doc(_pairId(fromUid, toUid));
-    await friendsRef.set({
-      'members': [fromUid, toUid],
-      'sourceRequestId': requestId,
-      'createdAt': FieldValue.serverTimestamp(),
+    // Same ordering constraint as the Firestore version, now enforced by
+    // the friendships_insert RLS policy directly (see
+    // supabase/migrations/20260914000002_rls_policies.sql): the source
+    // request must still be 'pending' at the moment the friendship row is
+    // created. Create first, delete the request after.
+    final pair = _sortedPair(fromUid, toUid);
+    await _db.from('friendships').insert({
+      'user_a': pair[0],
+      'user_b': pair[1],
+      'source_request_id': requestId,
     });
 
-    // friendsCount for BOTH members is bumped by the friendCreated Cloud
-    // Function (functions/index.js) using the admin SDK. A client can only
-    // write its OWN users doc, so incrementing the peer's counter here would
-    // fail the owner-only users rule (firestore.rules users block).
+    // friends_count for both members is bumped by the
+    // bump_friends_count trigger (database-side, not client-issued) --
+    // see supabase/migrations/20260914000001_initial_schema.sql.
 
-    await requestRef.delete();
+    await _db.from('friend_requests').delete().eq('id', requestId);
     await _deleteRequestNotifications(requestId);
   }
 
   // ================= DECLINE REQUEST =================
   static Future<void> declineRequest({required String requestId}) async {
-    await _firestore.collection('friend_requests').doc(requestId).delete();
+    await _db.from('friend_requests').delete().eq('id', requestId);
     await _deleteRequestNotifications(requestId);
   }
 
   static Future<void> _deleteRequestNotifications(String requestId) async {
-    final notifs = await _firestore
-        .collection('notifications')
-        .where('type', isEqualTo: 'friend_request')
-        .where('requestId', isEqualTo: requestId)
-        .get();
-
-    if (notifs.docs.isEmpty) return;
-
-    final batch = _firestore.batch();
-    for (final doc in notifs.docs) {
-      batch.delete(doc.reference);
-    }
-    await batch.commit();
+    await _db
+        .from('notifications')
+        .delete()
+        .eq('type', 'friend_request')
+        .eq('request_id', requestId);
   }
 }

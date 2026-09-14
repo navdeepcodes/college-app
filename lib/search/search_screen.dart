@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../profile/profile_screen.dart';
 import '../auth/services/college_detector.dart';
@@ -27,39 +26,39 @@ class _SearchScreenState extends State<SearchScreen> {
     _load();
   }
 
-  // The directory is college-scoped and loaded ONCE (not a live listener
-  // rebuilt on every keystroke — the previous version inlined the query
-  // directly in build(), which re-subscribed a fresh listener on the
-  // entire college's user collection every time _query changed, i.e. on
-  // every character typed). Filtering happens in-memory below.
+  // The directory is college-scoped and loaded ONCE (not re-queried on
+  // every keystroke — same discipline as the Firestore version, which
+  // fixed a per-keystroke full-directory re-subscribe bug). Filtering
+  // happens in-memory below.
   Future<void> _load() async {
     setState(() => _state = _LoadState.loading);
 
     try {
-      final uid = FirebaseAuth.instance.currentUser!.uid;
-      final userDoc =
-          await FirebaseFirestore.instance.collection('users').doc(uid).get();
+      final supabase = Supabase.instance.client;
+      final uid = supabase.auth.currentUser!.id;
+      final profileRows =
+          await supabase.from('profiles').select().eq('id', uid).limit(1);
 
-      final collegeId = canonicalCollegeId(userDoc.data());
+      final collegeId = profileRows.isNotEmpty
+          ? canonicalCollegeId(profileRows.first)
+          : '';
       if (collegeId.isEmpty) {
         if (mounted) setState(() => _state = _LoadState.noProfile);
         return;
       }
 
-      // The Firestore rules reject an unfiltered users query (see
-      // firestore.rules users block), so this where() is mandatory, not a
-      // convenience. Capped: a college directory search doesn't need to
-      // hold every profile in memory at once.
-      final snap = await FirebaseFirestore.instance
-          .collection('users')
-          .where('collegeId', isEqualTo: collegeId)
-          .limit(1000)
-          .get();
+      // RLS rejects an unfiltered profiles query (profiles_select requires
+      // own-row-or-same-college-or-admin) the same way the Firestore rule
+      // did, so this eq() is mandatory, not a convenience.
+      final rows = await supabase
+          .from('profiles')
+          .select()
+          .eq('college_id', collegeId)
+          .limit(1000);
 
       if (!mounted) return;
       setState(() {
-        _directory =
-            snap.docs.map((d) => d.data()).toList(growable: false);
+        _directory = rows;
         _state = _LoadState.ready;
       });
     } catch (_) {
@@ -73,7 +72,6 @@ class _SearchScreenState extends State<SearchScreen> {
       appBar: AppBar(title: const Text('Search')),
       body: Column(
         children: [
-          // 🔍 SEARCH BAR
           Padding(
             padding: const EdgeInsets.all(12),
             child: TextField(
@@ -94,8 +92,6 @@ class _SearchScreenState extends State<SearchScreen> {
               },
             ),
           ),
-
-          // 👥 RESULTS (college-isolated)
           Expanded(child: _buildResults()),
         ],
       ),
@@ -161,10 +157,10 @@ class _SearchScreenState extends State<SearchScreen> {
 
         return ListTile(
           leading: CircleAvatar(
-            backgroundImage: user['photoUrl'] != null
-                ? NetworkImage(user['photoUrl'])
+            backgroundImage: user['photo_url'] != null
+                ? NetworkImage(user['photo_url'])
                 : null,
-            child: user['photoUrl'] == null
+            child: user['photo_url'] == null
                 ? const Icon(Icons.person)
                 : null,
           ),
@@ -176,7 +172,7 @@ class _SearchScreenState extends State<SearchScreen> {
             Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (_) => ProfileScreen(userId: user['uid']),
+                builder: (_) => ProfileScreen(userId: user['id']),
               ),
             );
           },

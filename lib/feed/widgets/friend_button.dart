@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../services/friend_service.dart';
 
 enum _Relationship { loading, friends, requestSent, requestReceived, none }
@@ -18,7 +17,7 @@ class FriendButton extends StatefulWidget {
 }
 
 class _FriendButtonState extends State<FriendButton> {
-  final _firestore = FirebaseFirestore.instance;
+  SupabaseClient get _db => Supabase.instance.client;
   late final String _currentUid;
 
   _Relationship _relationship = _Relationship.loading;
@@ -27,62 +26,58 @@ class _FriendButtonState extends State<FriendButton> {
   @override
   void initState() {
     super.initState();
-    _currentUid = FirebaseAuth.instance.currentUser!.uid;
+    _currentUid = Supabase.instance.client.auth.currentUser!.id;
     if (_currentUid != widget.targetUserId) {
       _loadRelationship();
     }
   }
 
-  String get _pairId {
-    final sorted = [_currentUid, widget.targetUserId]..sort();
-    return '${sorted[0]}_${sorted[1]}';
-  }
+  List<String> get _sortedPair => [_currentUid, widget.targetUserId]..sort();
 
   Future<void> _loadRelationship() async {
-    bool alreadyFriends = false;
-    try {
-      final friendsDoc = await _firestore.collection('friends').doc(_pairId).get();
-      alreadyFriends = friendsDoc.exists;
-    } catch (_) {
-      // See FriendService._areFriends: a nonexistent friends doc makes the
-      // rules' resource.data dereference throw rather than returning
-      // exists:false, so permission-denied here just means "not friends."
-      alreadyFriends = false;
-    }
+    final pair = _sortedPair;
+    // A nonexistent friendship reads back as an empty list, not a thrown
+    // error — no try/catch workaround needed here, unlike the Firestore
+    // version (see FriendService._areFriends for the full explanation).
+    final friendsRows = await _db
+        .from('friendships')
+        .select('id')
+        .eq('user_a', pair[0])
+        .eq('user_b', pair[1])
+        .limit(1);
     if (!mounted) return;
 
-    if (alreadyFriends) {
+    if (friendsRows.isNotEmpty) {
       setState(() => _relationship = _Relationship.friends);
       return;
     }
 
-    final outgoing = await _firestore
-        .collection('friend_requests')
-        .where('fromUid', isEqualTo: _currentUid)
-        .where('toUid', isEqualTo: widget.targetUserId)
-        .where('status', isEqualTo: 'pending')
-        .limit(1)
-        .get();
+    final outgoing = await _db
+        .from('friend_requests')
+        .select('id')
+        .eq('from_uid', _currentUid)
+        .eq('to_uid', widget.targetUserId)
+        .eq('status', 'pending')
+        .limit(1);
     if (!mounted) return;
 
-    if (outgoing.docs.isNotEmpty) {
+    if (outgoing.isNotEmpty) {
       setState(() => _relationship = _Relationship.requestSent);
       return;
     }
 
-    final incoming = await _firestore
-        .collection('friend_requests')
-        .where('fromUid', isEqualTo: widget.targetUserId)
-        .where('toUid', isEqualTo: _currentUid)
-        .where('status', isEqualTo: 'pending')
-        .limit(1)
-        .get();
+    final incoming = await _db
+        .from('friend_requests')
+        .select('id')
+        .eq('from_uid', widget.targetUserId)
+        .eq('to_uid', _currentUid)
+        .eq('status', 'pending')
+        .limit(1);
     if (!mounted) return;
 
     setState(() {
-      _relationship = incoming.docs.isNotEmpty
-          ? _Relationship.requestReceived
-          : _Relationship.none;
+      _relationship =
+          incoming.isNotEmpty ? _Relationship.requestReceived : _Relationship.none;
     });
   }
 
@@ -92,9 +87,6 @@ class _FriendButtonState extends State<FriendButton> {
     final messenger = ScaffoldMessenger.of(context);
 
     try {
-      // sendRequest already auto-accepts when the target already requested
-      // us, so this single call correctly handles both the "none" and
-      // "requestReceived" states.
       final result = await FriendService.sendRequest(
         fromUid: _currentUid,
         toUid: widget.targetUserId,

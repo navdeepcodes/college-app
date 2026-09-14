@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../feed/widgets/friend_button.dart';
 import '../settings/settings_screen.dart';
@@ -15,7 +14,7 @@ class ProfileScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final currentUid = FirebaseAuth.instance.currentUser?.uid;
+    final currentUid = Supabase.instance.client.auth.currentUser?.id;
     final isMe = currentUid == userId;
 
     if (currentUid == null) {
@@ -24,57 +23,59 @@ class ProfileScreen extends StatelessWidget {
       );
     }
 
+    final pair = ([currentUid, userId]..sort());
+
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
         title: const Text('Profile'),
         actions: isMe
             ? [
-          IconButton(
-            icon: const Icon(Icons.settings),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => const SettingsScreen(),
+                IconButton(
+                  icon: const Icon(Icons.settings),
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const SettingsScreen(),
+                      ),
+                    );
+                  },
                 ),
-              );
-            },
-          ),
-        ]
+              ]
             : null,
       ),
-      body: StreamBuilder<DocumentSnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('users')
-            .doc(userId)
-            .snapshots(),
+      body: StreamBuilder<List<Map<String, dynamic>>>(
+        stream: Supabase.instance.client
+            .from('profiles')
+            .stream(primaryKey: ['id'])
+            .eq('id', userId)
+            .limit(1),
         builder: (context, snap) {
           if (!snap.hasData) {
             return const Center(child: CircularProgressIndicator());
           }
 
-          if (!snap.data!.exists) {
+          if (snap.data!.isEmpty) {
             return const Center(child: Text('User not found'));
           }
 
-          final user = snap.data!.data() as Map<String, dynamic>;
-          final photoUrl = user['photoUrl'];
+          final user = snap.data!.first;
+          final photoUrl = user['photo_url'];
           final name = user['name'] ?? '';
           final nickname = user['nickname'];
           final bio = user['bio'];
           final college = user['college'] ?? '';
           final year = user['year'] ?? '';
 
-          return StreamBuilder<QuerySnapshot>(
-            stream: FirebaseFirestore.instance
-                .collection('friends')
-                .where('members', arrayContains: currentUid)
-                .snapshots(),
+          return StreamBuilder<List<Map<String, dynamic>>>(
+            stream: Supabase.instance.client
+                .from('friendships')
+                .stream(primaryKey: ['id'])
+                .eq('user_a', pair[0])
+                .eq('user_b', pair[1]),
             builder: (context, friendsSnap) {
-              final isFriend = friendsSnap.hasData &&
-                  friendsSnap.data!.docs.any((d) =>
-                      List<String>.from(d['members']).contains(userId));
+              final isFriend = (friendsSnap.data ?? []).isNotEmpty;
 
               return SingleChildScrollView(
                 padding: const EdgeInsets.symmetric(vertical: 24),
@@ -84,7 +85,7 @@ class ProfileScreen extends StatelessWidget {
                       radius: 54,
                       backgroundColor: Colors.white.withValues(alpha: 0.08),
                       backgroundImage:
-                      photoUrl != null ? NetworkImage(photoUrl) : null,
+                          photoUrl != null ? NetworkImage(photoUrl) : null,
                       child: photoUrl == null
                           ? const Icon(Icons.person, size: 44)
                           : null,
@@ -124,7 +125,7 @@ class ProfileScreen extends StatelessWidget {
                       children: [
                         _CountItem(
                           label: 'Posts',
-                          value: user['postsCount'] ?? 0,
+                          value: user['posts_count'] ?? 0,
                         ),
                         GestureDetector(
                           onTap: () {
@@ -138,12 +139,17 @@ class ProfileScreen extends StatelessWidget {
                           },
                           child: _CountItem(
                             label: 'Friends',
-                            value: user['friendsCount'] ?? 0,
+                            value: user['friends_count'] ?? 0,
                           ),
                         ),
                         _CountItem(
+                          // Never actually maintained anywhere (Firestore
+                          // version had no writer for it either) -- always
+                          // 0 today. Carried forward unchanged, not fixed
+                          // or removed, since it's out of this migration's
+                          // scope to invent club-membership-count logic.
                           label: 'Clubs',
-                          value: user['clubsCount'] ?? 0,
+                          value: user['clubs_count'] ?? 0,
                         ),
                       ],
                     ),
@@ -152,21 +158,20 @@ class ProfileScreen extends StatelessWidget {
                       padding: const EdgeInsets.symmetric(horizontal: 24),
                       child: isMe
                           ? _pillButton(
-                        text: 'Edit Profile',
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) =>
-                              const EditProfileScreen(),
-                            ),
-                          );
-                        },
-                      )
+                              text: 'Edit Profile',
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => const EditProfileScreen(),
+                                  ),
+                                );
+                              },
+                            )
                           : _FriendActionButton(
-                        currentUid: currentUid,
-                        targetUid: userId,
-                      ),
+                              currentUid: currentUid,
+                              targetUid: userId,
+                            ),
                     ),
                     const SizedBox(height: 28),
                     const Divider(color: Colors.white12),

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../chat/chat_screen.dart';
 import 'profile_screen.dart';
@@ -13,12 +13,15 @@ class FriendsListScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Friends')),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('friends')
-            .where('members', arrayContains: userId)
-            .limit(500)
-            .snapshots(),
+      body: StreamBuilder<List<Map<String, dynamic>>>(
+        // user_a/user_b are OR'd via .or() since a friendship row could
+        // have userId in either column (the sorted-pair constraint just
+        // fixes WHICH column, not which side is "us").
+        stream: Supabase.instance.client
+            .from('friendships')
+            .stream(primaryKey: ['id'])
+            .order('created_at')
+            .limit(500),
         builder: (context, snap) {
           if (snap.hasError) {
             return const Center(child: Text('Failed to load friends'));
@@ -28,10 +31,9 @@ class FriendsListScreen extends StatelessWidget {
             return const Center(child: CircularProgressIndicator());
           }
 
-          final friendUids = snap.data!.docs
-              .expand((doc) =>
-          List<String>.from(doc['members']))
-              .where((uid) => uid != userId)
+          final friendUids = snap.data!
+              .where((row) => row['user_a'] == userId || row['user_b'] == userId)
+              .map((row) => row['user_a'] == userId ? row['user_b'] as String : row['user_a'] as String)
               .toSet()
               .toList();
 
@@ -44,27 +46,27 @@ class FriendsListScreen extends StatelessWidget {
             itemBuilder: (context, index) {
               final friendUid = friendUids[index];
 
-              return StreamBuilder<DocumentSnapshot>(
-                stream: FirebaseFirestore.instance
-                    .collection('users')
-                    .doc(friendUid)
-                    .snapshots(),
+              return StreamBuilder<List<Map<String, dynamic>>>(
+                stream: Supabase.instance.client
+                    .from('profiles')
+                    .stream(primaryKey: ['id'])
+                    .eq('id', friendUid)
+                    .limit(1),
                 builder: (context, userSnap) {
-                  if (!userSnap.hasData || !userSnap.data!.exists) {
-                    // Deleted/unavailable account — skip the row rather than
-                    // crash on the null-cast below.
+                  if (!userSnap.hasData || userSnap.data!.isEmpty) {
+                    // Deleted/unavailable account — skip the row rather
+                    // than crash on the null-cast below.
                     return const SizedBox.shrink();
                   }
 
-                  final user =
-                  userSnap.data!.data() as Map<String, dynamic>;
+                  final user = userSnap.data!.first;
 
                   return ListTile(
                     leading: CircleAvatar(
-                      backgroundImage: user['photoUrl'] != null
-                          ? NetworkImage(user['photoUrl'])
+                      backgroundImage: user['photo_url'] != null
+                          ? NetworkImage(user['photo_url'])
                           : null,
-                      child: user['photoUrl'] == null
+                      child: user['photo_url'] == null
                           ? const Icon(Icons.person)
                           : null,
                     ),
@@ -76,8 +78,7 @@ class FriendsListScreen extends StatelessWidget {
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (_) =>
-                                ChatScreen(peerUid: friendUid),
+                            builder: (_) => ChatScreen(peerUid: friendUid),
                           ),
                         );
                       },
@@ -86,8 +87,7 @@ class FriendsListScreen extends StatelessWidget {
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (_) =>
-                              ProfileScreen(userId: friendUid),
+                          builder: (_) => ProfileScreen(userId: friendUid),
                         ),
                       );
                     },

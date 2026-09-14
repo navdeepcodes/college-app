@@ -2,8 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:college_app/services/storage_service.dart';
 
@@ -21,7 +20,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   File? _image;
   bool _loading = false;
 
-  // ✅ StorageService is stateless → no constructor needed
   final StorageService _storageService = StorageService();
 
   @override
@@ -31,14 +29,17 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   }
 
   Future<void> _loadUser() async {
-    final uid = FirebaseAuth.instance.currentUser!.uid;
-    final doc =
-    await FirebaseFirestore.instance.collection('users').doc(uid).get();
+    final uid = Supabase.instance.client.auth.currentUser!.id;
+    final rows = await Supabase.instance.client
+        .from('profiles')
+        .select()
+        .eq('id', uid)
+        .limit(1);
 
     if (!mounted) return;
 
-    final data = doc.data();
-    if (data == null) return;
+    if (rows.isEmpty) return;
+    final data = rows.first;
 
     _nicknameController.text = data['nickname'] ?? '';
     _bioController.text = data['bio'] ?? '';
@@ -46,14 +47,14 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
   Future<void> _pickImage() async {
     final picked =
-    await ImagePicker().pickImage(source: ImageSource.gallery);
+        await ImagePicker().pickImage(source: ImageSource.gallery);
     if (picked != null) {
       setState(() => _image = File(picked.path));
     }
   }
 
   Future<void> _save() async {
-    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final uid = Supabase.instance.client.auth.currentUser!.id;
     setState(() => _loading = true);
 
     try {
@@ -66,16 +67,15 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         );
       }
 
-      await FirebaseFirestore.instance.collection('users').doc(uid).update({
+      await Supabase.instance.client.from('profiles').update({
         'nickname': _nicknameController.text.trim().isEmpty
             ? null
             : _nicknameController.text.trim(),
         'bio': _bioController.text.trim().isEmpty
             ? null
             : _bioController.text.trim(),
-        if (photoUrl != null) 'photoUrl': photoUrl,
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
+        if (photoUrl != null) 'photo_url': photoUrl,
+      }).eq('id', uid);
 
       if (!mounted) return;
       Navigator.pop(context);
@@ -112,13 +112,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 radius: 54,
                 backgroundColor: Colors.grey.shade900,
                 backgroundImage:
-                _image != null ? FileImage(_image!) : null,
+                    _image != null ? FileImage(_image!) : null,
                 child: _image == null
                     ? const Icon(
-                  Icons.camera_alt,
-                  size: 28,
-                  color: Colors.white70,
-                )
+                        Icons.camera_alt,
+                        size: 28,
+                        color: Colors.white70,
+                      )
                     : null,
               ),
             ),
