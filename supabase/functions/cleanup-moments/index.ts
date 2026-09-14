@@ -8,8 +8,18 @@ serve(async (_req) => {
     // -------------------------------
     // ENV
     // -------------------------------
-    const supabaseUrl = Deno.env.get("'https://xzohkfdotsnzayiywrie.supabase.co'");
-    const serviceRoleKey = Deno.env.get("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh6b2hrZmRvdHNuemF5aXl3cmllIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2NTQyODI2MywiZXhwIjoyMDgxMDA0MjYzfQ.oz83TCmr349cYoaKCWzdaZhVWe7STTy4YPTxW4_GOmc");
+    // Was: a real project URL and a real service_role key hardcoded here,
+    // passed as literal string arguments to Deno.env.get() -- which reads
+    // an environment variable BY NAME, so this never actually worked, and
+    // it committed a live, RLS-bypassing secret (for a different Supabase
+    // project than this migration's own "ReServe dev") into the repo's
+    // very first commit. Removed; see docs/supabase-migration-status.md
+    // for the disclosure. Edge Functions get SUPABASE_URL and
+    // SUPABASE_SERVICE_ROLE_KEY injected automatically at runtime by the
+    // Supabase platform -- no .env file or secret needs to be set for
+    // these two specifically.
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
     if (!supabaseUrl || !serviceRoleKey) {
       return new Response(
