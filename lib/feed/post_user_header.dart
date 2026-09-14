@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../core/widgets/avatar.dart';
+
 class PostUserHeader extends StatelessWidget {
   final String userId;
   final VoidCallback? onTap;
@@ -33,25 +35,22 @@ class PostUserHeader extends StatelessWidget {
         return InkWell(
           onTap: onTap,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             child: Row(
               children: [
-                CircleAvatar(
+                AppAvatar(
+                  photoUrl: photoUrl,
+                  name: name,
                   radius: 18,
-                  backgroundImage:
-                      photoUrl != null ? NetworkImage(photoUrl) : null,
-                  child: photoUrl == null
-                      ? const Icon(Icons.person, size: 18)
-                      : null,
                 ),
-                const SizedBox(width: 8),
-                Text(
-                  name,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    name,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14.5),
                   ),
                 ),
-                const Spacer(),
                 if (trailing != null) trailing!,
               ],
             ),

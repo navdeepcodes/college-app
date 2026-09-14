@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../services/friend_service.dart';
+import '../../core/app_colors.dart';
+import '../../core/haptics.dart';
+import '../../core/motion.dart';
 
 enum _Relationship { loading, friends, requestSent, requestReceived, none, error }
 
@@ -107,15 +110,13 @@ class _FriendButtonState extends State<FriendButton> {
 
       switch (result) {
         case SendFriendRequestResult.sent:
-          messenger.showSnackBar(
-            const SnackBar(content: Text('Friend request sent')),
-          );
+          AppHaptics.tap();
+          messenger.showSnackBar(const SnackBar(content: Text('Friend request sent')));
           setState(() => _relationship = _Relationship.requestSent);
           break;
         case SendFriendRequestResult.acceptedIncoming:
-          messenger.showSnackBar(
-            const SnackBar(content: Text("You're now friends")),
-          );
+          AppHaptics.confirm();
+          messenger.showSnackBar(const SnackBar(content: Text("You're now friends")));
           setState(() => _relationship = _Relationship.friends);
           break;
         case SendFriendRequestResult.alreadyFriends:
@@ -128,7 +129,7 @@ class _FriendButtonState extends State<FriendButton> {
     } catch (e) {
       if (mounted) {
         messenger.showSnackBar(
-          SnackBar(content: Text('Something went wrong: $e')),
+          const SnackBar(content: Text('Something went wrong. Try again.')),
         );
       }
     } finally {
@@ -142,52 +143,96 @@ class _FriendButtonState extends State<FriendButton> {
       return const SizedBox.shrink();
     }
 
-    if (_relationship == _Relationship.loading) {
-      return const SizedBox(
-        height: 36,
-        width: 36,
-        child: Padding(
-          padding: EdgeInsets.all(8),
-          child: CircularProgressIndicator(strokeWidth: 2),
-        ),
-      );
-    }
-
-    if (_relationship == _Relationship.error) {
-      return IconButton(
-        icon: const Icon(Icons.refresh, size: 20),
-        tooltip: 'Retry',
-        onPressed: _loadRelationship,
-      );
-    }
-
-    if (_relationship == _Relationship.friends) {
-      return const Chip(
-        avatar: Icon(Icons.check, size: 16),
-        label: Text('Friends'),
-      );
-    }
-
-    if (_relationship == _Relationship.requestSent) {
-      return const OutlinedButton(
-        onPressed: null,
-        child: Text('Request Sent'),
-      );
-    }
-
-    final label = _relationship == _Relationship.requestReceived
-        ? 'Accept Request'
-        : 'Add Friend';
-
-    return ElevatedButton(
-      onPressed: _busy ? null : _handleTap,
-      child: _busy
-          ? const SizedBox(
-              height: 18,
-              width: 18,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            )
-          : Text(label),
+    return AnimatedSwitcher(
+      duration: AppMotion.base,
+      switchInCurve: AppMotion.standard,
+      switchOutCurve: AppMotion.standard,
+      transitionBuilder: (child, animation) => FadeTransition(
+        opacity: animation,
+        child: ScaleTransition(scale: Tween(begin: 0.92, end: 1.0).animate(animation), child: child),
+      ),
+      child: KeyedSubtree(
+        key: ValueKey(_relationship),
+        child: _buildForState(),
+      ),
     );
+  }
+
+  Widget _buildForState() {
+    switch (_relationship) {
+      case _Relationship.loading:
+        return const SizedBox(
+          height: 46,
+          child: Center(
+            child: SizedBox(
+              height: 22,
+              width: 22,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+          ),
+        );
+
+      case _Relationship.error:
+        return SizedBox(
+          height: 46,
+          child: OutlinedButton.icon(
+            onPressed: _loadRelationship,
+            icon: const Icon(Icons.refresh_rounded, size: 18),
+            label: const Text('Retry'),
+          ),
+        );
+
+      case _Relationship.friends:
+        return Container(
+          height: 46,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: AppColors.accent.withValues(alpha: 0.16),
+            borderRadius: BorderRadius.circular(23),
+            border: Border.all(color: AppColors.accent.withValues(alpha: 0.4)),
+          ),
+          child: const Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.check_circle_rounded, size: 18, color: AppColors.accentBright),
+              SizedBox(width: 8),
+              Text('Friends', style: TextStyle(fontWeight: FontWeight.w600)),
+            ],
+          ),
+        );
+
+      case _Relationship.requestSent:
+        return SizedBox(
+          height: 46,
+          child: OutlinedButton.icon(
+            onPressed: null,
+            icon: const Icon(Icons.schedule_rounded, size: 17),
+            label: const Text('Request sent'),
+          ),
+        );
+
+      case _Relationship.requestReceived:
+      case _Relationship.none:
+        final label = _relationship == _Relationship.requestReceived ? 'Accept request' : 'Add friend';
+        return SizedBox(
+          height: 46,
+          child: ElevatedButton.icon(
+            onPressed: _busy ? null : _handleTap,
+            icon: _busy
+                ? const SizedBox(
+                    height: 16,
+                    width: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  )
+                : Icon(
+                    _relationship == _Relationship.requestReceived
+                        ? Icons.check_rounded
+                        : Icons.person_add_alt_1_rounded,
+                    size: 18,
+                  ),
+            label: Text(label),
+          ),
+        );
+    }
   }
 }

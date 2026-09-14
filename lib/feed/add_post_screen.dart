@@ -7,6 +7,9 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/storage_service.dart';
 import '../auth/services/college_detector.dart';
 import '../moderation/text_filter.dart';
+import '../core/app_colors.dart';
+import '../core/spacing.dart';
+import '../core/widgets/pressable.dart';
 
 class AddPostScreen extends StatefulWidget {
   const AddPostScreen({super.key});
@@ -42,7 +45,7 @@ class _AddPostScreenState extends State<AddPostScreen> {
     final captionFilter = TextFilter.filter(caption);
     if (!captionFilter.isAllowed) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('⚠️ Caption blocked by filter')),
+        const SnackBar(content: Text('Caption blocked by filter')),
       );
       return;
     }
@@ -114,35 +117,44 @@ class _AddPostScreenState extends State<AddPostScreen> {
         ],
       ),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(AppSpace.lg),
         children: [
-          GestureDetector(
+          Pressable(
             onTap: _pickImage,
             child: Container(
-              height: 200,
+              height: 220,
               decoration: BoxDecoration(
-                color: Colors.grey.shade200,
-                borderRadius: BorderRadius.circular(12),
+                color: AppColors.surfaceSunken,
+                borderRadius: BorderRadius.circular(AppRadius.lg),
+                border: Border.all(color: AppColors.border),
               ),
               child: _image != null
                   ? ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(AppRadius.lg),
                       child: Image.file(
                         _image!,
                         fit: BoxFit.cover,
                         width: double.infinity,
                       ),
                     )
-                  : const Center(
-                      child: Icon(Icons.add_a_photo, size: 40),
+                  : Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.add_photo_alternate_outlined,
+                            size: 34, color: AppColors.textSecondary),
+                        const SizedBox(height: 10),
+                        Text('Choose a photo', style: Theme.of(context).textTheme.bodyMedium),
+                      ],
                     ),
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: AppSpace.lg),
           TextField(
             controller: _captionController,
+            textCapitalization: TextCapitalization.sentences,
             decoration: const InputDecoration(hintText: 'Write a caption'),
-            maxLines: null,
+            maxLines: 4,
+            minLines: 2,
           ),
         ],
       ),

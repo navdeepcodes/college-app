@@ -2,6 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../utils/dedupe_stream_rows.dart';
+import '../core/app_colors.dart';
+import '../core/haptics.dart';
+import '../core/spacing.dart';
+import '../core/widgets/empty_state.dart';
+import '../core/widgets/entrance.dart';
+import '../core/widgets/request_card.dart';
+import '../core/widgets/skeleton.dart';
 
 class AdminClubRequestsScreen extends StatelessWidget {
   const AdminClubRequestsScreen({super.key});
@@ -9,9 +16,7 @@ class AdminClubRequestsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Club Creation Requests'),
-      ),
+      appBar: AppBar(title: const Text('Club creation requests')),
       body: StreamBuilder<List<Map<String, dynamic>>>(
         stream: Supabase.instance.client
             .from('club_requests')
@@ -19,11 +24,10 @@ class AdminClubRequestsScreen extends StatelessWidget {
             .eq('status', 'pending'),
         builder: (context, snap) {
           if (snap.hasError) {
-            return const Center(
-              child: Text(
-                'Failed to load club requests',
-                style: TextStyle(color: Colors.white54),
-              ),
+            return const EmptyState(
+              icon: Icons.error_outline_rounded,
+              title: "Couldn't load club requests",
+              isError: true,
             );
           }
 
@@ -34,11 +38,9 @@ class AdminClubRequestsScreen extends StatelessWidget {
           final docs = dedupeStreamRowsById(snap.data ?? []);
 
           if (docs.isEmpty) {
-            return const Center(
-              child: Text(
-                'No pending club requests',
-                style: TextStyle(color: Colors.white54),
-              ),
+            return const EmptyState(
+              icon: Icons.inbox_outlined,
+              title: 'No pending club requests',
             );
           }
 
@@ -47,9 +49,13 @@ class AdminClubRequestsScreen extends StatelessWidget {
             itemCount: docs.length,
             itemBuilder: (context, index) {
               final data = docs[index];
-              return _ClubRequestCard(
-                requestId: data['id'] as String,
-                data: data,
+              return Entrance(
+                key: ValueKey(data['id']),
+                delay: Duration(milliseconds: 30 * index),
+                child: _ClubRequestCard(
+                  requestId: data['id'] as String,
+                  data: data,
+                ),
               );
             },
           );
@@ -87,13 +93,10 @@ class _ClubRequestCardState extends State<_ClubRequestCard> {
       await Supabase.instance.client
           .rpc('approve_club_request', params: {'p_request_id': widget.requestId});
 
-      messenger.showSnackBar(
-        const SnackBar(content: Text('Club approved successfully')),
-      );
+      AppHaptics.confirm();
+      messenger.showSnackBar(const SnackBar(content: Text('Club approved successfully')));
     } catch (e) {
-      messenger.showSnackBar(
-        SnackBar(content: Text('Approval failed: $e')),
-      );
+      messenger.showSnackBar(const SnackBar(content: Text('Approval failed. Try again.')));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -110,9 +113,7 @@ class _ClubRequestCardState extends State<_ClubRequestCard> {
           .update({'status': 'rejected'})
           .eq('id', widget.requestId);
     } catch (e) {
-      messenger.showSnackBar(
-        SnackBar(content: Text('Reject failed: $e')),
-      );
+      messenger.showSnackBar(const SnackBar(content: Text('Reject failed. Try again.')));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -121,54 +122,26 @@ class _ClubRequestCardState extends State<_ClubRequestCard> {
   @override
   Widget build(BuildContext context) {
     final data = widget.data;
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              data['club_name'] ?? '',
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(data['description'] ?? ''),
-            const SizedBox(height: 8),
-            Text('Phone: ${data['phone']}'),
-            Text('USN: ${data['usn']}'),
-            const SizedBox(height: 12),
-            if (data['id_card_url'] != null) _IdCardPreview(path: data['id_card_url']),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: _busy ? null : _reject,
-                    child: const Text('Reject'),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: ElevatedButton(
-                    onPressed: _busy ? null : _approve,
-                    child: _busy
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Text('Approve'),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
+    return RequestCard(
+      title: data['club_name'] ?? '',
+      busy: _busy,
+      extras: [
+        if ((data['description'] ?? '').toString().isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text(data['description'], style: Theme.of(context).textTheme.bodyMedium),
+          ),
+        Text('Phone: ${data['phone']}', style: Theme.of(context).textTheme.bodySmall),
+        Text('USN: ${data['usn']}', style: Theme.of(context).textTheme.bodySmall),
+        if (data['id_card_url'] != null) ...[
+          const SizedBox(height: AppSpace.md),
+          _IdCardPreview(path: data['id_card_url']),
+        ],
+      ],
+      secondaryLabel: 'Reject',
+      onSecondary: _reject,
+      primaryLabel: 'Approve',
+      onPrimary: _approve,
     );
   }
 }
@@ -191,21 +164,18 @@ class _IdCardPreview extends StatelessWidget {
           .createSignedUrl(path, 300),
       builder: (context, snap) {
         if (snap.connectionState == ConnectionState.waiting) {
-          return const SizedBox(
+          return const Skeleton(
             height: 160,
-            child: Center(child: CircularProgressIndicator()),
+            borderRadius: BorderRadius.all(Radius.circular(AppRadius.sm)),
           );
         }
         if (snap.hasError || !snap.hasData) {
           return const Center(
-            child: Text(
-              'Unable to load ID card',
-              style: TextStyle(color: Colors.white54),
-            ),
+            child: Text('Unable to load ID card', style: TextStyle(color: AppColors.textMuted)),
           );
         }
         return ClipRRect(
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(AppRadius.sm),
           child: Image.network(
             snap.data!,
             height: 160,
@@ -213,10 +183,7 @@ class _IdCardPreview extends StatelessWidget {
             fit: BoxFit.cover,
             errorBuilder: (_, __, ___) {
               return const Center(
-                child: Text(
-                  'Unable to load ID card',
-                  style: TextStyle(color: Colors.white54),
-                ),
+                child: Text('Unable to load ID card', style: TextStyle(color: AppColors.textMuted)),
               );
             },
           ),

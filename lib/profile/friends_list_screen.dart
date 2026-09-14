@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../chat/chat_screen.dart';
+import '../core/widgets/avatar.dart';
+import '../core/widgets/empty_state.dart';
 import 'profile_screen.dart';
 
 class FriendsListScreen extends StatelessWidget {
@@ -24,7 +26,11 @@ class FriendsListScreen extends StatelessWidget {
             .limit(500),
         builder: (context, snap) {
           if (snap.hasError) {
-            return const Center(child: Text('Failed to load friends'));
+            return const EmptyState(
+              icon: Icons.error_outline_rounded,
+              title: "Couldn't load friends",
+              isError: true,
+            );
           }
 
           if (!snap.hasData) {
@@ -38,10 +44,15 @@ class FriendsListScreen extends StatelessWidget {
               .toList();
 
           if (friendUids.isEmpty) {
-            return const Center(child: Text('No friends yet'));
+            return const EmptyState(
+              icon: Icons.people_outline_rounded,
+              title: 'No friends yet',
+              message: 'Friends you add will show up here.',
+            );
           }
 
           return ListView.builder(
+            padding: const EdgeInsets.symmetric(vertical: 8),
             itemCount: friendUids.length,
             itemBuilder: (context, index) {
               final friendUid = friendUids[index];
@@ -60,20 +71,14 @@ class FriendsListScreen extends StatelessWidget {
                   }
 
                   final user = userSnap.data!.first;
+                  final name = user['name'] ?? '';
 
                   return ListTile(
-                    leading: CircleAvatar(
-                      backgroundImage: user['photo_url'] != null
-                          ? NetworkImage(user['photo_url'])
-                          : null,
-                      child: user['photo_url'] == null
-                          ? const Icon(Icons.person)
-                          : null,
-                    ),
-                    title: Text(user['name'] ?? ''),
+                    leading: AppAvatar(photoUrl: user['photo_url'], name: name, radius: 22),
+                    title: Text(name),
                     subtitle: Text(user['college'] ?? ''),
                     trailing: IconButton(
-                      icon: const Icon(Icons.chat),
+                      icon: const Icon(Icons.chat_bubble_outline_rounded),
                       onPressed: () {
                         Navigator.push(
                           context,

@@ -3,6 +3,11 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../moderation/text_filter.dart';
 import '../utils/dedupe_stream_rows.dart';
+import '../core/app_colors.dart';
+import '../core/spacing.dart';
+import '../core/widgets/avatar.dart';
+import '../core/widgets/empty_state.dart';
+import '../core/widgets/entrance.dart';
 
 class CommentsScreen extends StatefulWidget {
   final String postId;
@@ -25,7 +30,7 @@ class _CommentsScreenState extends State<CommentsScreen> {
     if (!filterResult.isAllowed) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('⚠️ Comment blocked by filter')),
+          const SnackBar(content: Text('Comment blocked by filter')),
         );
       }
       return;
@@ -51,11 +56,7 @@ class _CommentsScreenState extends State<CommentsScreen> {
       debugPrint('Comment send failed: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Comment not sent. Try again.'),
-            backgroundColor: Colors.redAccent,
-            behavior: SnackBarBehavior.floating,
-          ),
+          const SnackBar(content: Text('Comment not sent. Try again.')),
         );
       }
     } finally {
@@ -67,12 +68,7 @@ class _CommentsScreenState extends State<CommentsScreen> {
   Widget build(BuildContext context) {
     final supabase = Supabase.instance.client;
     return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
-        title: const Text('Comments'),
-        backgroundColor: Colors.black,
-        elevation: 0,
-      ),
+      appBar: AppBar(title: const Text('Comments')),
       body: Column(
         children: [
           Expanded(
@@ -85,40 +81,39 @@ class _CommentsScreenState extends State<CommentsScreen> {
                   .limit(200),
               builder: (context, snap) {
                 if (snap.hasError) {
-                  return const Center(
-                    child: Text(
-                      'Failed to load comments',
-                      style: TextStyle(color: Colors.white70),
-                    ),
+                  return const EmptyState(
+                    icon: Icons.error_outline_rounded,
+                    title: "Couldn't load comments",
+                    isError: true,
                   );
                 }
 
                 if (!snap.hasData) {
-                  return const Center(
-                    child: CircularProgressIndicator(),
-                  );
+                  return const Center(child: CircularProgressIndicator());
                 }
 
                 final comments = dedupeStreamRowsById(snap.data!);
 
                 if (comments.isEmpty) {
-                  return const Center(
-                    child: Text(
-                      'No comments yet',
-                      style: TextStyle(color: Colors.white70),
-                    ),
+                  return const EmptyState(
+                    icon: Icons.mode_comment_outlined,
+                    title: 'No comments yet',
+                    message: 'Say something first.',
                   );
                 }
 
                 return ListView.builder(
                   reverse: true,
-                  padding: const EdgeInsets.only(bottom: 12),
+                  padding: const EdgeInsets.symmetric(vertical: AppSpace.sm),
                   itemCount: comments.length,
                   itemBuilder: (context, index) {
                     final data = comments[index];
-                    return _CommentTile(
-                      userId: data['user_id'],
-                      text: data['text'],
+                    return Entrance(
+                      key: ValueKey(data['id']),
+                      child: _CommentTile(
+                        userId: data['user_id'],
+                        text: data['text'],
+                      ),
                     );
                   },
                 );
@@ -127,37 +122,23 @@ class _CommentsScreenState extends State<CommentsScreen> {
           ),
           SafeArea(
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: Colors.black,
-                border: Border(
-                  top: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
-                ),
+              padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+              decoration: const BoxDecoration(
+                border: Border(top: BorderSide(color: AppColors.border)),
               ),
               child: Row(
                 children: [
                   Expanded(
                     child: TextField(
                       controller: _controller,
-                      style: const TextStyle(color: Colors.white),
-                      decoration: InputDecoration(
+                      textCapitalization: TextCapitalization.sentences,
+                      decoration: const InputDecoration(
                         hintText: 'Add a comment...',
-                        hintStyle:
-                            TextStyle(color: Colors.white.withValues(alpha: 0.5)),
-                        filled: true,
-                        fillColor: Colors.white.withValues(alpha: 0.06),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(20),
-                          borderSide: BorderSide.none,
-                        ),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 10,
-                        ),
+                        contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                       ),
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 6),
                   IconButton(
                     icon: _sending
                         ? const SizedBox(
@@ -165,7 +146,7 @@ class _CommentsScreenState extends State<CommentsScreen> {
                             height: 18,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        : const Icon(Icons.send, color: Colors.deepPurple),
+                        : const Icon(Icons.send_rounded, color: AppColors.accentBright),
                     onPressed: _sending ? null : _sendComment,
                   ),
                 ],
@@ -204,25 +185,24 @@ class _CommentTile extends StatelessWidget {
         final name = user['name'] ?? 'User';
         final photoUrl = user['photo_url'];
 
-        return ListTile(
-          leading: CircleAvatar(
-            backgroundColor: Colors.white24,
-            backgroundImage:
-                photoUrl != null ? NetworkImage(photoUrl) : null,
-            child: photoUrl == null
-                ? const Icon(Icons.person, size: 18)
-                : null,
-          ),
-          title: Text(
-            name,
-            style: const TextStyle(
-              fontWeight: FontWeight.w600,
-              color: Colors.white,
-            ),
-          ),
-          subtitle: Text(
-            text,
-            style: const TextStyle(color: Colors.white70),
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: AppSpace.lg, vertical: 8),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              AppAvatar(photoUrl: photoUrl, name: name, radius: 16),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(name, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5)),
+                    const SizedBox(height: 2),
+                    Text(text, style: Theme.of(context).textTheme.bodyMedium),
+                  ],
+                ),
+              ),
+            ],
           ),
         );
       },

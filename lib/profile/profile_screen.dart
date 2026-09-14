@@ -5,6 +5,11 @@ import '../feed/widgets/friend_button.dart';
 import '../settings/settings_screen.dart';
 import '../services/moderation_service.dart';
 import '../moderation/report_dialog.dart';
+import '../core/app_colors.dart';
+import '../core/haptics.dart';
+import '../core/spacing.dart';
+import '../core/widgets/avatar.dart';
+import '../core/widgets/entrance.dart';
 import 'edit_profile_screen.dart';
 import 'user_posts_grid.dart';
 import 'friends_list_screen.dart';
@@ -13,6 +18,41 @@ class ProfileScreen extends StatelessWidget {
   final String userId;
 
   const ProfileScreen({super.key, required this.userId});
+
+  Future<void> _confirmBlock(BuildContext context, String name) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Block this person?'),
+        content: Text(
+          "$name won't be able to message you or send friend requests. "
+          'You can unblock them anytime from their profile.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Block', style: TextStyle(color: AppColors.danger)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !context.mounted) return;
+
+    AppHaptics.warn();
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await ModerationService.blockUser(userId);
+      messenger.showSnackBar(SnackBar(content: Text('$name is blocked')));
+    } catch (e) {
+      debugPrint('Block failed: $e');
+      final already = e.toString().contains('23505');
+      messenger.showSnackBar(
+        SnackBar(content: Text(already ? 'Already blocked.' : 'Something went wrong. Try again.')),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -28,74 +68,57 @@ class ProfileScreen extends StatelessWidget {
     final pair = ([currentUid, userId]..sort());
 
     return Scaffold(
-      backgroundColor: Colors.black,
       appBar: AppBar(
         title: const Text('Profile'),
         actions: isMe
             ? [
                 IconButton(
-                  icon: const Icon(Icons.settings),
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => const SettingsScreen(),
-                      ),
-                    );
-                  },
+                  icon: const Icon(Icons.settings_outlined),
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const SettingsScreen()),
+                  ),
                 ),
               ]
             : [
-                PopupMenuButton<String>(
-                  itemBuilder: (context) => const [
-                    PopupMenuItem(
-                      value: 'report',
-                      child: Text('Report user'),
-                    ),
-                    PopupMenuItem(
-                      value: 'block',
-                      child: Text('Block user'),
-                    ),
-                    PopupMenuItem(
-                      value: 'unblock',
-                      child: Text('Unblock user'),
-                    ),
-                  ],
-                  onSelected: (value) async {
-                    if (value == 'report') {
-                      await showReportDialog(
-                        context,
-                        targetType: 'user',
-                        targetId: userId,
-                      );
-                      return;
-                    }
-                    final messenger = ScaffoldMessenger.of(context);
-                    try {
-                      if (value == 'block') {
-                        await ModerationService.blockUser(userId);
-                        messenger.showSnackBar(
-                          const SnackBar(content: Text('User blocked')),
-                        );
-                      } else if (value == 'unblock') {
-                        await ModerationService.unblockUser(userId);
-                        messenger.showSnackBar(
-                          const SnackBar(content: Text('User unblocked')),
-                        );
-                      }
-                    } catch (e) {
-                      debugPrint('Block/unblock failed: $e');
-                      final already = e.toString().contains('23505');
-                      messenger.showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            already
-                                ? 'Already blocked.'
-                                : 'Something went wrong. Try again.',
-                          ),
-                        ),
-                      );
-                    }
+                StreamBuilder<List<Map<String, dynamic>>>(
+                  stream: Supabase.instance.client
+                      .from('profiles')
+                      .stream(primaryKey: ['id'])
+                      .eq('id', userId)
+                      .limit(1),
+                  builder: (context, snap) {
+                    final name = (snap.data?.isNotEmpty ?? false)
+                        ? (snap.data!.first['name'] ?? 'This user')
+                        : 'This user';
+
+                    return PopupMenuButton<String>(
+                      itemBuilder: (context) => const [
+                        PopupMenuItem(value: 'report', child: Text('Report user')),
+                        PopupMenuItem(value: 'block', child: Text('Block user')),
+                        PopupMenuItem(value: 'unblock', child: Text('Unblock user')),
+                      ],
+                      onSelected: (value) async {
+                        if (value == 'report') {
+                          await showReportDialog(context, targetType: 'user', targetId: userId);
+                          return;
+                        }
+                        if (value == 'block') {
+                          await _confirmBlock(context, name);
+                          return;
+                        }
+                        final messenger = ScaffoldMessenger.of(context);
+                        try {
+                          await ModerationService.unblockUser(userId);
+                          messenger.showSnackBar(const SnackBar(content: Text('User unblocked')));
+                        } catch (e) {
+                          debugPrint('Unblock failed: $e');
+                          messenger.showSnackBar(
+                            const SnackBar(content: Text('Something went wrong. Try again.')),
+                          );
+                        }
+                      },
+                    );
                   },
                 ),
               ],
@@ -133,103 +156,77 @@ class ProfileScreen extends StatelessWidget {
               final isFriend = (friendsSnap.data ?? []).isNotEmpty;
 
               return SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(vertical: 24),
+                padding: const EdgeInsets.symmetric(vertical: AppSpace.xxl),
                 child: Column(
                   children: [
-                    CircleAvatar(
-                      radius: 54,
-                      backgroundColor: Colors.white.withValues(alpha: 0.08),
-                      backgroundImage:
-                          photoUrl != null ? NetworkImage(photoUrl) : null,
-                      child: photoUrl == null
-                          ? const Icon(Icons.person, size: 44)
-                          : null,
+                    Entrance(
+                      child: AppAvatar(photoUrl: photoUrl, name: name, radius: 52),
                     ),
-                    const SizedBox(height: 14),
-                    Text(
-                      name,
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
+                    const SizedBox(height: AppSpace.md),
+                    Text(name, style: Theme.of(context).textTheme.titleLarge),
                     if (nickname != null && nickname.isNotEmpty)
-                      Text(
-                        '@$nickname',
-                        style: const TextStyle(color: Colors.white60),
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Text('@$nickname',
+                            style: const TextStyle(color: AppColors.textMuted)),
                       ),
-                    const SizedBox(height: 6),
-                    Text(
-                      '$college • $year',
-                      style: const TextStyle(color: Colors.white54),
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: AppColors.surfaceRaised,
+                        borderRadius: BorderRadius.circular(AppRadius.pill),
+                        border: Border.all(color: AppColors.border),
+                      ),
+                      child: Text(
+                        [college, year].where((s) => s.toString().isNotEmpty).join(' · '),
+                        style: const TextStyle(color: AppColors.textSecondary, fontSize: 12.5, fontWeight: FontWeight.w600),
+                      ),
                     ),
                     if (bio != null && bio.isNotEmpty) ...[
-                      const SizedBox(height: 12),
+                      const SizedBox(height: AppSpace.md),
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 32),
                         child: Text(
                           bio,
                           textAlign: TextAlign.center,
-                          style: const TextStyle(color: Colors.white70),
+                          style: Theme.of(context).textTheme.bodyMedium,
                         ),
                       ),
                     ],
-                    const SizedBox(height: 22),
+                    const SizedBox(height: AppSpace.xl),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                       children: [
+                        _CountItem(label: 'Posts', value: user['posts_count'] ?? 0),
                         _CountItem(
-                          label: 'Posts',
-                          value: user['posts_count'] ?? 0,
-                        ),
-                        GestureDetector(
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) =>
-                                    FriendsListScreen(userId: userId),
-                              ),
-                            );
-                          },
-                          child: _CountItem(
-                            label: 'Friends',
-                            value: user['friends_count'] ?? 0,
+                          label: 'Friends',
+                          value: user['friends_count'] ?? 0,
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (_) => FriendsListScreen(userId: userId)),
                           ),
                         ),
-                        _CountItem(
-                          // Never actually maintained anywhere (Firestore
-                          // version had no writer for it either) -- always
-                          // 0 today. Carried forward unchanged, not fixed
-                          // or removed, since it's out of this migration's
-                          // scope to invent club-membership-count logic.
-                          label: 'Clubs',
-                          value: user['clubs_count'] ?? 0,
-                        ),
+                        _CountItem(label: 'Clubs', value: user['clubs_count'] ?? 0),
                       ],
                     ),
-                    const SizedBox(height: 22),
+                    const SizedBox(height: AppSpace.xl),
                     Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                      padding: const EdgeInsets.symmetric(horizontal: AppSpace.xxl),
                       child: isMe
-                          ? _pillButton(
-                              text: 'Edit Profile',
-                              onTap: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) => const EditProfileScreen(),
-                                  ),
-                                );
-                              },
+                          ? OutlinedButton(
+                              onPressed: () => Navigator.push(
+                                context,
+                                MaterialPageRoute(builder: (_) => const EditProfileScreen()),
+                              ),
+                              style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(46)),
+                              child: const Text('Edit profile'),
                             )
-                          : _FriendActionButton(
-                              currentUid: currentUid,
-                              targetUid: userId,
-                            ),
+                          : FriendButton(targetUserId: userId),
                     ),
-                    const SizedBox(height: 28),
-                    const Divider(color: Colors.white12),
+                    const SizedBox(height: AppSpace.xxl),
+                    const Divider(indent: 24, endIndent: 24),
+                    const SizedBox(height: 4),
                     if (isMe || isFriend)
                       UserPostsGrid(uid: userId)
                     else
@@ -237,7 +234,7 @@ class ProfileScreen extends StatelessWidget {
                         padding: EdgeInsets.all(32),
                         child: Text(
                           'Only friends can see posts',
-                          style: TextStyle(color: Colors.white54),
+                          style: TextStyle(color: AppColors.textMuted),
                         ),
                       ),
                   ],
@@ -251,58 +248,31 @@ class ProfileScreen extends StatelessWidget {
   }
 }
 
-class _FriendActionButton extends StatelessWidget {
-  final String currentUid;
-  final String targetUid;
-
-  const _FriendActionButton({
-    required this.currentUid,
-    required this.targetUid,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return FriendButton(targetUserId: targetUid);
-  }
-}
-
-Widget _pillButton({
-  required String text,
-  required VoidCallback onTap,
-}) {
-  return GestureDetector(
-    onTap: onTap,
-    child: Container(
-      height: 46,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.white24),
-      ),
-      child: Text(
-        text,
-        style: const TextStyle(fontWeight: FontWeight.w600),
-      ),
-    ),
-  );
-}
-
 class _CountItem extends StatelessWidget {
   final String label;
   final int value;
+  final VoidCallback? onTap;
 
-  const _CountItem({required this.label, required this.value});
+  const _CountItem({required this.label, required this.value, this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Text(
-          value.toString(),
-          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+        child: Column(
+          children: [
+            Text(
+              value.toString(),
+              style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 2),
+            Text(label, style: const TextStyle(color: AppColors.textMuted, fontSize: 12.5)),
+          ],
         ),
-        Text(label, style: const TextStyle(color: Colors.white54)),
-      ],
+      ),
     );
   }
 }

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:flutter/services.dart';
 import '../moderation/text_filter.dart';
+import '../core/app_colors.dart';
+import '../core/haptics.dart';
+import '../core/widgets/entrance.dart';
 
 class CollegeAnonChatScreen extends StatefulWidget {
   final String chatId;
@@ -110,7 +112,7 @@ class _CollegeAnonChatScreenState extends State<CollegeAnonChatScreen> {
       }
     }
 
-    HapticFeedback.lightImpact();
+    AppHaptics.tap();
 
     setState(() => _sending = true);
     final textToUpload = result.cleanedText;
@@ -164,7 +166,7 @@ class _CollegeAnonChatScreenState extends State<CollegeAnonChatScreen> {
     if (_anonId == null) {
       return const Scaffold(
         backgroundColor: Colors.black,
-        body: Center(child: CircularProgressIndicator(color: Colors.deepPurpleAccent)),
+        body: Center(child: CircularProgressIndicator(color: AppColors.anonAccent)),
       );
     }
 
@@ -185,7 +187,7 @@ class _CollegeAnonChatScreenState extends State<CollegeAnonChatScreen> {
             Text(widget.chatName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
             const Text(
               'Disappearing in 90s',
-              style: TextStyle(fontSize: 11, color: Colors.redAccent, fontWeight: FontWeight.w600),
+              style: TextStyle(fontSize: 11, color: AppColors.danger, fontWeight: FontWeight.w600),
             ),
           ],
         ),
@@ -221,7 +223,7 @@ class _CollegeAnonChatScreenState extends State<CollegeAnonChatScreen> {
                   if (!snapshot.hasData) {
                     return const Center(
                       child: CircularProgressIndicator(
-                        color: Colors.deepPurpleAccent,
+                        color: AppColors.anonAccent,
                       ),
                     );
                   }
@@ -261,10 +263,15 @@ class _CollegeAnonChatScreenState extends State<CollegeAnonChatScreen> {
                       final expiresAt = DateTime.parse(data['expires_at'] as String);
                       final remaining = expiresAt.difference(now).inSeconds;
 
-                      return _MessageBubble(
-                        anonId: data['anon_id'] ?? 'ANON',
-                        text: data['text'] ?? '',
-                        remaining: remaining > 0 ? remaining : 0,
+                      return Entrance(
+                        key: ValueKey(data['id']),
+                        offset: const Offset(0, 0.15),
+                        duration: const Duration(milliseconds: 180),
+                        child: _MessageBubble(
+                          anonId: data['anon_id'] ?? 'ANON',
+                          text: data['text'] ?? '',
+                          remaining: remaining > 0 ? remaining : 0,
+                        ),
                       );
                     },
                   );
@@ -322,14 +329,14 @@ class _CollegeAnonChatScreenState extends State<CollegeAnonChatScreen> {
               width: 48,
               decoration: BoxDecoration(
                 gradient: const LinearGradient(
-                  colors: [Colors.deepPurpleAccent, Color(0xFF6200EA)],
+                  colors: [AppColors.anonAccent, AppColors.accentDeep],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
                 shape: BoxShape.circle,
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.deepPurpleAccent.withValues(alpha: 0.4),
+                    color: AppColors.anonAccent.withValues(alpha: 0.4),
                     blurRadius: 10,
                     offset: const Offset(0, 4),
                   )
@@ -396,7 +403,7 @@ class _MessageBubble extends StatelessWidget {
                     style: const TextStyle(
                       fontSize: 10,
                       letterSpacing: 1.2,
-                      color: Colors.deepPurpleAccent,
+                      color: AppColors.anonAccent,
                       fontWeight: FontWeight.w900,
                     ),
                   ),

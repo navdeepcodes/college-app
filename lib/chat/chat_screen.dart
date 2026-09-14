@@ -3,6 +3,12 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../moderation/text_filter.dart';
 import '../utils/dedupe_stream_rows.dart';
+import '../core/app_colors.dart';
+import '../core/haptics.dart';
+import '../core/spacing.dart';
+import '../core/widgets/avatar.dart';
+import '../core/widgets/chat_bubble.dart';
+import '../core/widgets/entrance.dart';
 
 class ChatScreen extends StatefulWidget {
   final String peerUid;
@@ -109,7 +115,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (!filterResult.isAllowed) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('⚠️ Message blocked by filter')),
+          const SnackBar(content: Text('Message blocked by filter')),
         );
       }
       return;
@@ -117,6 +123,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
     setState(() => _sending = true);
     _controller.clear();
+    AppHaptics.tap();
 
     try {
       await _db.from('messages').insert({
@@ -148,6 +155,7 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        titleSpacing: 0,
         title: StreamBuilder<List<Map<String, dynamic>>>(
           stream: _db
               .from('profiles')
@@ -157,19 +165,13 @@ class _ChatScreenState extends State<ChatScreen> {
           builder: (_, snap) {
             if (!snap.hasData || snap.data!.isEmpty) return const SizedBox();
             final u = snap.data!.first;
+            final name = u['name'] ?? '';
 
             return Row(
               children: [
-                CircleAvatar(
-                  radius: 16,
-                  backgroundImage:
-                      u['photo_url'] != null ? NetworkImage(u['photo_url']) : null,
-                  child: u['photo_url'] == null
-                      ? const Icon(Icons.person, size: 16)
-                      : null,
-                ),
-                const SizedBox(width: 8),
-                Text(u['name'] ?? ''),
+                AppAvatar(photoUrl: u['photo_url'], name: name, radius: 16),
+                const SizedBox(width: 10),
+                Flexible(child: Text(name, overflow: TextOverflow.ellipsis)),
               ],
             );
           },
@@ -244,15 +246,29 @@ class _ChatScreenState extends State<ChatScreen> {
 
               return ListView.builder(
                 reverse: true,
+                padding: const EdgeInsets.fromLTRB(AppSpace.md, AppSpace.md, AppSpace.md, AppSpace.sm),
                 itemCount: msgs.length,
                 itemBuilder: (_, i) {
                   final d = msgs[i];
                   final isMe = d['from_uid'] == _currentUid;
+                  // Newer neighbor is msgs[i - 1] since the list is
+                  // reversed (index 0 = most recent). A tail (tight
+                  // corner) belongs on the newest bubble of a
+                  // consecutive same-sender run.
+                  final showTail = i == 0 || msgs[i - 1]['from_uid'] != d['from_uid'];
 
-                  return _ChatBubble(
-                    text: d['text'],
-                    isMe: isMe,
-                    status: d['status'],
+                  return Entrance(
+                    key: ValueKey(d['id']),
+                    offset: const Offset(0, 0.15),
+                    duration: const Duration(milliseconds: 180),
+                    child: ChatBubble(
+                      text: d['text'] ?? '',
+                      isMe: isMe,
+                      showTail: showTail,
+                      footer: isMe && showTail
+                          ? MessageStatusIcon(status: d['status'] ?? 'sent')
+                          : null,
+                    ),
                   );
                 },
               );
@@ -277,67 +293,59 @@ class _InputBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.all(8),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(10, 8, 8, 8),
+        decoration: const BoxDecoration(
+          border: Border(top: BorderSide(color: AppColors.border)),
+        ),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             Expanded(
               child: TextField(
                 controller: controller,
+                textCapitalization: TextCapitalization.sentences,
+                minLines: 1,
+                maxLines: 5,
                 decoration: const InputDecoration(
                   hintText: 'Message...',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.all(Radius.circular(24)),
-                  ),
+                  contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 ),
               ),
             ),
-            const SizedBox(width: 8),
-            IconButton(
-              icon: const Icon(Icons.send),
-              onPressed: onSend,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ChatBubble extends StatelessWidget {
-  final String text;
-  final bool isMe;
-  final String status;
-
-  const _ChatBubble({
-    required this.text,
-    required this.isMe,
-    required this.status,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Align(
-      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-      child: Padding(
-        padding: const EdgeInsets.all(6),
-        child: Column(
-          crossAxisAlignment:
-              isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: isMe ? Colors.blue : Colors.grey.shade800,
-                borderRadius: BorderRadius.circular(16),
+            const SizedBox(width: 6),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 2),
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 150),
+                child: onSend == null
+                    ? Container(
+                        key: const ValueKey('busy'),
+                        width: 44,
+                        height: 44,
+                        alignment: Alignment.center,
+                        child: const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      )
+                    : Material(
+                        key: const ValueKey('ready'),
+                        color: AppColors.accent,
+                        shape: const CircleBorder(),
+                        child: InkWell(
+                          onTap: onSend,
+                          customBorder: const CircleBorder(),
+                          child: const SizedBox(
+                            width: 44,
+                            height: 44,
+                            child: Icon(Icons.arrow_upward_rounded, color: Colors.white, size: 20),
+                          ),
+                        ),
+                      ),
               ),
-              child: Text(text),
             ),
-            if (isMe)
-              Text(
-                status,
-                style: const TextStyle(fontSize: 10, color: Colors.white54),
-              ),
           ],
         ),
       ),

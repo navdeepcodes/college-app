@@ -3,6 +3,9 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../profile/profile_screen.dart';
 import '../auth/services/college_detector.dart';
+import '../core/spacing.dart';
+import '../core/widgets/avatar.dart';
+import '../core/widgets/empty_state.dart';
 
 class SearchScreen extends StatefulWidget {
   const SearchScreen({super.key});
@@ -73,17 +76,12 @@ class _SearchScreenState extends State<SearchScreen> {
       body: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(AppSpace.md),
             child: TextField(
               controller: _controller,
-              decoration: InputDecoration(
+              decoration: const InputDecoration(
                 hintText: 'Search classmates',
-                prefixIcon: const Icon(Icons.search),
-                filled: true,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide.none,
-                ),
+                prefixIcon: Icon(Icons.search_rounded),
               ),
               onChanged: (value) {
                 setState(() {
@@ -103,36 +101,21 @@ class _SearchScreenState extends State<SearchScreen> {
       case _LoadState.loading:
         return const Center(child: CircularProgressIndicator());
       case _LoadState.error:
-        return Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text(
-                'Failed to load classmates',
-                style: TextStyle(color: Colors.white70),
-              ),
-              const SizedBox(height: 12),
-              TextButton(onPressed: _load, child: const Text('Retry')),
-            ],
-          ),
-        );
+        return EmptyState.error(onAction: _load);
       case _LoadState.noProfile:
-        return const Center(
-          child: Text(
-            'Complete your profile to search classmates',
-            style: TextStyle(color: Colors.white70),
-          ),
+        return const EmptyState(
+          icon: Icons.badge_outlined,
+          title: 'Finish your profile',
+          message: 'Complete your profile to search classmates.',
         );
       case _LoadState.ready:
         break;
     }
 
     if (_query.isEmpty) {
-      return const Center(
-        child: Text(
-          'Start typing to search',
-          style: TextStyle(color: Colors.white54),
-        ),
+      return const EmptyState(
+        icon: Icons.search_rounded,
+        title: 'Start typing to search',
       );
     }
 
@@ -142,11 +125,10 @@ class _SearchScreenState extends State<SearchScreen> {
     }).toList();
 
     if (users.isEmpty) {
-      return const Center(
-        child: Text(
-          'No users found',
-          style: TextStyle(color: Colors.white54),
-        ),
+      return const EmptyState(
+        icon: Icons.person_search_outlined,
+        title: 'No users found',
+        message: 'Try a different name.',
       );
     }
 
@@ -154,17 +136,11 @@ class _SearchScreenState extends State<SearchScreen> {
       itemCount: users.length,
       itemBuilder: (context, index) {
         final user = users[index];
+        final name = user['name'] ?? '';
 
         return ListTile(
-          leading: CircleAvatar(
-            backgroundImage: user['photo_url'] != null
-                ? NetworkImage(user['photo_url'])
-                : null,
-            child: user['photo_url'] == null
-                ? const Icon(Icons.person)
-                : null,
-          ),
-          title: Text(user['name'] ?? ''),
+          leading: AppAvatar(photoUrl: user['photo_url'], name: name, radius: 22),
+          title: Text(name),
           subtitle: Text(
             '${user['college'] ?? ''} ${user['year'] ?? ''}',
           ),

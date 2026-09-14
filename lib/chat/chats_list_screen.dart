@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../core/app_colors.dart';
+import '../core/widgets/avatar.dart';
+import '../core/widgets/empty_state.dart';
+import '../core/widgets/relative_time.dart';
 import 'chat_screen.dart';
 import 'start_conversation_screen.dart';
 
@@ -13,10 +17,7 @@ class ChatsListScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text(
-          'Messages',
-          style: TextStyle(fontWeight: FontWeight.w600),
-        ),
+        title: const Text('Messages'),
         actions: [
           IconButton(
             icon: const Icon(Icons.edit_square),
@@ -38,7 +39,11 @@ class ChatsListScreen extends StatelessWidget {
             .order('last_message_at', ascending: false),
         builder: (context, snap) {
           if (snap.hasError) {
-            return const Center(child: Text('Failed to load messages'));
+            return const EmptyState(
+              icon: Icons.error_outline_rounded,
+              title: "Couldn't load messages",
+              isError: true,
+            );
           }
 
           if (snap.connectionState == ConnectionState.waiting) {
@@ -54,20 +59,28 @@ class ChatsListScreen extends StatelessWidget {
               .toList();
 
           if (chats.isEmpty) {
-            return const _EmptyMessagesState();
+            return const EmptyState(
+              icon: Icons.chat_bubble_outline_rounded,
+              title: 'No conversations yet',
+              message: 'Messages with your friends will show up here.',
+            );
           }
 
           return ListView.separated(
             itemCount: chats.length,
-            separatorBuilder: (_, __) => const Divider(indent: 72),
+            separatorBuilder: (_, __) => const Divider(indent: 76, height: 1),
             itemBuilder: (context, index) {
               final data = chats[index];
               final peerUid =
                   data['user_a'] == uid ? data['user_b'] as String : data['user_a'] as String;
+              final lastMessageAtRaw = data['last_message_at'] as String?;
+              final lastMessageAt =
+                  lastMessageAtRaw != null ? DateTime.tryParse(lastMessageAtRaw) : null;
 
               return _ChatTile(
                 peerUid: peerUid,
                 lastMessage: data['last_message'] ?? '',
+                lastMessageAt: lastMessageAt,
               );
             },
           );
@@ -80,10 +93,12 @@ class ChatsListScreen extends StatelessWidget {
 class _ChatTile extends StatelessWidget {
   final String peerUid;
   final String lastMessage;
+  final DateTime? lastMessageAt;
 
   const _ChatTile({
     required this.peerUid,
     required this.lastMessage,
+    required this.lastMessageAt,
   });
 
   @override
@@ -97,33 +112,29 @@ class _ChatTile extends StatelessWidget {
       builder: (context, snap) {
         if (!snap.hasData) {
           return const ListTile(
-            leading: CircleAvatar(),
+            leading: CircleAvatar(backgroundColor: AppColors.surfaceSunken),
             title: Text('Loading...'),
           );
         }
 
         if (snap.data!.isEmpty) return const SizedBox.shrink();
         final user = snap.data!.first;
+        final name = user['name'] ?? 'User';
 
         return ListTile(
-          leading: CircleAvatar(
-            radius: 24,
-            backgroundImage: user['photo_url'] != null
-                ? NetworkImage(user['photo_url'])
-                : null,
-            child: user['photo_url'] == null
-                ? const Icon(Icons.person)
-                : null,
-          ),
-          title: Text(
-            user['name'] ?? 'User',
-            style: const TextStyle(fontWeight: FontWeight.w600),
-          ),
+          leading: AppAvatar(photoUrl: user['photo_url'], name: name, radius: 24),
+          title: Text(name),
           subtitle: Text(
             lastMessage.isEmpty ? 'Tap to chat' : lastMessage,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
+          trailing: lastMessageAt != null
+              ? Text(
+                  relativeTime(lastMessageAt!),
+                  style: const TextStyle(color: AppColors.textMuted, fontSize: 11.5),
+                )
+              : null,
           onTap: () {
             Navigator.push(
               context,
@@ -134,27 +145,6 @@ class _ChatTile extends StatelessWidget {
           },
         );
       },
-    );
-  }
-}
-
-class _EmptyMessagesState extends StatelessWidget {
-  const _EmptyMessagesState();
-
-  @override
-  Widget build(BuildContext context) {
-    return const Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.chat_bubble_outline, size: 64),
-          SizedBox(height: 12),
-          Text(
-            'No conversations yet',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-          ),
-        ],
-      ),
     );
   }
 }

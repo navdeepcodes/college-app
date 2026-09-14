@@ -1,5 +1,22 @@
 import 'dart:math';
 
+/// The one college dropdown list used by both signup and profile setup.
+/// Previously each screen kept its own hand-typed list — signup offered 7
+/// colleges (several, like "Ramaiah" and "Christ University", not
+/// recognized by [CollegeDetector] at all and silently falling through to
+/// a slugified-freetext college_id), profile setup offered a different 5.
+/// A student could see one college name during signup and a completely
+/// different set during profile setup. This list matches exactly what
+/// [CollegeDetector] resolves from an email domain, plus "Other" as an
+/// honest fallback.
+const List<String> kCollegeOptions = [
+  'Nitte Meenakshi Institute of Technology',
+  'RV College of Engineering',
+  'BMS College of Engineering',
+  'PES University',
+  'Other',
+];
+
 /// College identity contract.
 ///
 /// Canonical field on a user document: **`collegeId`** — a stable, lower-case

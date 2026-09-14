@@ -13,6 +13,15 @@ dependencies:
 
   cupertino_icons: ^1.0.6
 
+  # ================= TYPOGRAPHY =================
+  # theme.dart declared 'SF Pro Display' but no such font was ever bundled
+  # (no assets/fonts, no fonts: section below) -- it silently fell back to
+  # the platform default the whole time. google_fonts is the standard,
+  # lightweight way to ship a deliberate type pairing (Sora display / Inter
+  # body) without hand-bundling .ttf files; it fetches once and caches on
+  # device, with a system-font fallback while a face is first loading.
+  google_fonts: ^6.2.1
+
   # ================= GOOGLE SIGN IN =================
   # Native sign-in only now -- Supabase Auth's signInWithIdToken takes the
   # resulting token (see lib/auth/screens/login_screen.dart). No firebase_auth.

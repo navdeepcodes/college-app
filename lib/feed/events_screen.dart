@@ -2,6 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../auth/services/college_detector.dart';
+import '../core/app_colors.dart';
+import '../core/spacing.dart';
+import '../core/widgets/empty_state.dart';
+import '../core/widgets/entrance.dart';
 
 /// College-scoped events list — the read side of create_event_screen.dart's
 /// write. Ported from the Firestore version (lib/feed/events_screen.dart,
@@ -27,11 +31,10 @@ class EventsScreen extends StatelessWidget {
           }
 
           if (userSnap.hasError) {
-            return const Center(
-              child: Text(
-                'Failed to load your profile',
-                style: TextStyle(color: Colors.white70),
-              ),
+            return const EmptyState(
+              icon: Icons.error_outline_rounded,
+              title: "Couldn't load your profile",
+              isError: true,
             );
           }
 
@@ -39,11 +42,10 @@ class EventsScreen extends StatelessWidget {
               ? canonicalCollegeId(userSnap.data!.first)
               : '';
           if (collegeId.isEmpty) {
-            return const Center(
-              child: Text(
-                'Complete your profile to see campus events',
-                style: TextStyle(color: Colors.white70),
-              ),
+            return const EmptyState(
+              icon: Icons.badge_outlined,
+              title: 'Finish your profile',
+              message: 'Complete your profile to see campus events.',
             );
           }
 
@@ -55,11 +57,10 @@ class EventsScreen extends StatelessWidget {
                 .order('start_date'),
             builder: (context, snap) {
               if (snap.hasError) {
-                return const Center(
-                  child: Text(
-                    'Failed to load events',
-                    style: TextStyle(color: Colors.white70),
-                  ),
+                return const EmptyState(
+                  icon: Icons.error_outline_rounded,
+                  title: "Couldn't load events",
+                  isError: true,
                 );
               }
 
@@ -71,18 +72,21 @@ class EventsScreen extends StatelessWidget {
                   snap.data!.where((d) => d['is_active'] != false).toList();
 
               if (docs.isEmpty) {
-                return const Center(
-                  child: Text(
-                    'No upcoming events',
-                    style: TextStyle(color: Colors.white70),
-                  ),
+                return const EmptyState(
+                  icon: Icons.event_outlined,
+                  title: 'No upcoming events',
+                  message: 'Events your campus posts will show up here.',
                 );
               }
 
               return ListView.builder(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(AppSpace.lg),
                 itemCount: docs.length,
-                itemBuilder: (context, i) => _EventCard(data: docs[i]),
+                itemBuilder: (context, i) => Entrance(
+                  key: ValueKey(docs[i]['id']),
+                  delay: Duration(milliseconds: 30 * i),
+                  child: _EventCard(data: docs[i]),
+                ),
               );
             },
           );
@@ -101,7 +105,11 @@ class _EventCard extends StatelessWidget {
     if (ts is! String) return '';
     final d = DateTime.tryParse(ts);
     if (d == null) return '';
-    return '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    return '${d.day} ${months[d.month - 1]}';
   }
 
   @override
@@ -117,74 +125,97 @@ class _EventCard extends StatelessWidget {
     final endDate = _fmt(data['end_date']);
     final eventLink = data['event_link'] as String?;
 
-    return Card(
-      color: Colors.white10,
-      margin: const EdgeInsets.only(bottom: 14),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              title,
-              style: const TextStyle(
-                fontWeight: FontWeight.w700,
-                fontSize: 16,
-                color: Colors.white,
-              ),
-            ),
-            if (startDate.isNotEmpty) ...[
-              const SizedBox(height: 4),
-              Text(
-                endDate.isNotEmpty && endDate != startDate
-                    ? '$startDate – $endDate'
-                    : startDate,
-                style: const TextStyle(color: Colors.white54, fontSize: 12),
+    return Container(
+      margin: const EdgeInsets.only(bottom: AppSpace.md),
+      padding: const EdgeInsets.all(AppSpace.lg),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (startDate.isNotEmpty)
+                Container(
+                  width: 46,
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  decoration: BoxDecoration(
+                    color: AppColors.accent.withValues(alpha: 0.16),
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
+                  ),
+                  alignment: Alignment.center,
+                  child: Text(
+                    startDate,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: AppColors.accentBright,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 11.5,
+                      height: 1.2,
+                    ),
+                  ),
+                ),
+              if (startDate.isNotEmpty) const SizedBox(width: AppSpace.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: Theme.of(context).textTheme.titleSmall),
+                    if (startDate.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Text(
+                          endDate.isNotEmpty && endDate != startDate
+                              ? '$startDate – $endDate'
+                              : startDate,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ),
+                  ],
+                ),
               ),
             ],
-            if (description.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Text(
-                description,
-                style: const TextStyle(color: Colors.white70),
-              ),
-            ],
-            if (mediaPaths.isNotEmpty) ...[
-              const SizedBox(height: 10),
-              SizedBox(
-                height: 90,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: mediaPaths.length,
-                  separatorBuilder: (_, __) => const SizedBox(width: 8),
-                  itemBuilder: (_, i) => ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: Image.network(
-                      mediaPaths[i],
+          ),
+          if (description.isNotEmpty) ...[
+            const SizedBox(height: AppSpace.sm),
+            Text(description, style: Theme.of(context).textTheme.bodyMedium),
+          ],
+          if (mediaPaths.isNotEmpty) ...[
+            const SizedBox(height: AppSpace.md),
+            SizedBox(
+              height: 90,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: mediaPaths.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 8),
+                itemBuilder: (_, i) => ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: Image.network(
+                    mediaPaths[i],
+                    width: 90,
+                    height: 90,
+                    fit: BoxFit.cover,
+                    cacheWidth: 180,
+                    errorBuilder: (_, __, ___) => Container(
                       width: 90,
                       height: 90,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => Container(
-                        width: 90,
-                        height: 90,
-                        color: Colors.white10,
-                        child: const Icon(Icons.broken_image_outlined,
-                            color: Colors.white38),
-                      ),
+                      color: AppColors.surfaceSunken,
+                      child: const Icon(Icons.broken_image_outlined, color: AppColors.textMuted),
                     ),
                   ),
                 ),
               ),
-            ],
-            if (eventLink != null && eventLink.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Text(
-                eventLink,
-                style: const TextStyle(color: Colors.white38, fontSize: 11),
-              ),
-            ],
+            ),
           ],
-        ),
+          if (eventLink != null && eventLink.isNotEmpty) ...[
+            const SizedBox(height: AppSpace.sm),
+            Text(eventLink, style: const TextStyle(color: AppColors.textMuted, fontSize: 11)),
+          ],
+        ],
       ),
     );
   }

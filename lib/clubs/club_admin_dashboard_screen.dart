@@ -3,6 +3,10 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'club_join_requests_screen.dart';
 import 'club_chat_screen.dart';
+import '../core/app_colors.dart';
+import '../core/spacing.dart';
+import '../core/widgets/entrance.dart';
+import '../core/widgets/pressable.dart';
 
 class ClubAdminDashboardScreen extends StatelessWidget {
   final String clubId;
@@ -25,12 +29,7 @@ class ClubAdminDashboardScreen extends StatelessWidget {
     }
 
     return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
-        backgroundColor: Colors.black,
-        elevation: 0,
-        title: const Text('Admin Dashboard'),
-      ),
+      appBar: AppBar(title: const Text('Admin dashboard')),
       body: StreamBuilder<List<Map<String, dynamic>>>(
         stream: Supabase.instance.client
             .from('club_members')
@@ -41,10 +40,7 @@ class ClubAdminDashboardScreen extends StatelessWidget {
         builder: (context, snap) {
           if (!snap.hasData || snap.data!.isEmpty) {
             return const Center(
-              child: Text(
-                'Access denied',
-                style: TextStyle(color: Colors.redAccent),
-              ),
+              child: Text('Access denied', style: TextStyle(color: AppColors.danger)),
             );
           }
 
@@ -53,73 +49,70 @@ class ClubAdminDashboardScreen extends StatelessWidget {
 
           if (role != 'admin') {
             return const Center(
-              child: Text(
-                'Admins only',
-                style: TextStyle(color: Colors.redAccent),
-              ),
+              child: Text('Admins only', style: TextStyle(color: AppColors.danger)),
             );
           }
 
+          final cards = [
+            _DashboardCard(
+              icon: Icons.person_add_alt_1_rounded,
+              title: 'Join requests',
+              subtitle: 'Approve or reject students',
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => ClubJoinRequestsScreen(clubId: clubId),
+                  ),
+                );
+              },
+            ),
+            _DashboardCard(
+              icon: Icons.group_outlined,
+              title: 'Members',
+              subtitle: 'View club members',
+              onTap: () {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Members screen coming soon')),
+                );
+              },
+            ),
+            _DashboardCard(
+              icon: Icons.event_available_outlined,
+              title: 'Events',
+              subtitle: 'Create and manage events',
+              onTap: () {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Event creation coming soon')),
+                );
+              },
+            ),
+            _DashboardCard(
+              icon: Icons.chat_bubble_outline_rounded,
+              title: 'Club chat',
+              subtitle: 'Open admin chat',
+              filled: true,
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => ClubChatScreen(clubId: clubId, clubName: clubName),
+                  ),
+                );
+              },
+            ),
+          ];
+
           return ListView(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.all(AppSpace.xl),
             children: [
-              _Header(clubName: clubName),
-              const SizedBox(height: 24),
-              _DashboardCard(
-                icon: Icons.person_add_alt_1,
-                title: 'Join Requests',
-                subtitle: 'Approve or reject students',
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) =>
-                          ClubJoinRequestsScreen(clubId: clubId),
-                    ),
-                  );
-                },
-              ),
-              _DashboardCard(
-                icon: Icons.group_outlined,
-                title: 'Members',
-                subtitle: 'View club members',
-                onTap: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Members screen coming next'),
-                    ),
-                  );
-                },
-              ),
-              _DashboardCard(
-                icon: Icons.event_available_outlined,
-                title: 'Events',
-                subtitle: 'Create and manage events',
-                onTap: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Event creation coming next'),
-                    ),
-                  );
-                },
-              ),
-              _DashboardCard(
-                icon: Icons.chat_bubble_outline,
-                title: 'Club Chat',
-                subtitle: 'Open admin chat',
-                filled: true,
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => ClubChatScreen(
-                        clubId: clubId,
-                        clubName: clubName,
-                      ),
-                    ),
-                  );
-                },
-              ),
+              Entrance(child: _Header(clubName: clubName)),
+              const SizedBox(height: AppSpace.xxl),
+              for (var i = 0; i < cards.length; i++)
+                Entrance(
+                  delay: Duration(milliseconds: 40 * i),
+                  child: cards[i],
+                ),
             ],
           );
         },
@@ -138,19 +131,9 @@ class _Header extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Club Admin',
-          style: TextStyle(
-            fontSize: 22,
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
-          ),
-        ),
+        Text('Club admin', style: Theme.of(context).textTheme.headlineSmall),
         const SizedBox(height: 6),
-        Text(
-          clubName,
-          style: const TextStyle(color: Colors.white54),
-        ),
+        Text(clubName, style: const TextStyle(color: AppColors.textMuted)),
       ],
     );
   }
@@ -173,20 +156,20 @@ class _DashboardCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return Pressable(
       onTap: onTap,
       child: Container(
-        margin: const EdgeInsets.only(bottom: 14),
-        padding: const EdgeInsets.all(18),
+        margin: const EdgeInsets.only(bottom: AppSpace.md),
+        padding: const EdgeInsets.all(AppSpace.lg),
         decoration: BoxDecoration(
-          color: filled ? Colors.deepPurple : const Color(0xFF141414),
-          borderRadius: BorderRadius.circular(20),
-          border: filled ? null : Border.all(color: Colors.white10),
+          color: filled ? AppColors.accent : AppColors.surfaceRaised,
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+          border: filled ? null : Border.all(color: AppColors.border),
         ),
         child: Row(
           children: [
-            Icon(icon, color: Colors.white, size: 26),
-            const SizedBox(width: 16),
+            Icon(icon, color: Colors.white, size: 24),
+            const SizedBox(width: AppSpace.md),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -194,23 +177,23 @@ class _DashboardCard extends StatelessWidget {
                   Text(
                     title,
                     style: const TextStyle(
-                      fontSize: 16,
+                      fontSize: 15.5,
                       fontWeight: FontWeight.bold,
                       color: Colors.white,
                     ),
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 3),
                   Text(
                     subtitle,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 12,
-                      color: Colors.white54,
+                      color: filled ? Colors.white70 : AppColors.textMuted,
                     ),
                   ),
                 ],
               ),
             ),
-            const Icon(Icons.chevron_right, color: Colors.white38),
+            Icon(Icons.chevron_right_rounded, color: Colors.white.withValues(alpha: filled ? 0.7 : 0.4)),
           ],
         ),
       ),

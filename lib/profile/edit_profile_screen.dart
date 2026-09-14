@@ -5,6 +5,8 @@ import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:college_app/services/storage_service.dart';
+import 'package:college_app/core/app_colors.dart';
+import 'package:college_app/core/spacing.dart';
 
 class EditProfileScreen extends StatefulWidget {
   const EditProfileScreen({super.key});
@@ -102,37 +104,45 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         ],
       ),
       body: ListView(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(AppSpace.xl),
         children: [
-          const SizedBox(height: 12),
+          const SizedBox(height: AppSpace.sm),
           Center(
             child: GestureDetector(
               onTap: _pickImage,
-              child: CircleAvatar(
-                radius: 54,
-                backgroundColor: Colors.grey.shade900,
-                backgroundImage:
-                    _image != null ? FileImage(_image!) : null,
-                child: _image == null
-                    ? const Icon(
-                        Icons.camera_alt,
-                        size: 28,
-                        color: Colors.white70,
-                      )
-                    : null,
+              child: Stack(
+                alignment: Alignment.bottomRight,
+                children: [
+                  CircleAvatar(
+                    radius: 54,
+                    backgroundColor: AppColors.surfaceSunken,
+                    backgroundImage: _image != null ? FileImage(_image!) : null,
+                    child: _image == null
+                        ? const Icon(Icons.camera_alt_outlined, size: 26, color: AppColors.textSecondary)
+                        : null,
+                  ),
+                  Container(
+                    padding: const EdgeInsets.all(7),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: AppColors.accent,
+                      border: Border.all(color: AppColors.background, width: 2),
+                    ),
+                    child: const Icon(Icons.edit, size: 14, color: Colors.white),
+                  ),
+                ],
               ),
             ),
           ),
-          const SizedBox(height: 32),
+          const SizedBox(height: AppSpace.xxxl),
           TextField(
             controller: _nicknameController,
             decoration: const InputDecoration(
               labelText: 'Nickname',
               hintText: 'e.g. deepcn',
-              filled: true,
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: AppSpace.lg),
           TextField(
             controller: _bioController,
             maxLines: 3,
@@ -140,7 +150,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             decoration: const InputDecoration(
               labelText: 'Bio',
               hintText: 'Tell something about yourself',
-              filled: true,
             ),
           ),
         ],

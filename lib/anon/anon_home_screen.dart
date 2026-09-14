@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'college_anon_chat_screen.dart';
 import '../auth/services/college_detector.dart';
+import '../core/app_colors.dart';
 
 class AnonHomeScreen extends StatefulWidget {
   const AnonHomeScreen({super.key});
@@ -55,16 +56,16 @@ class _AnonHomeScreenState extends State<AnonHomeScreen> {
   Widget build(BuildContext context) {
     if (_loading) {
       return const Scaffold(
-        backgroundColor: Colors.black,
+        backgroundColor: AppColors.background,
         body: Center(
-          child: CircularProgressIndicator(color: Colors.deepPurple),
+          child: CircularProgressIndicator(color: AppColors.anonAccent),
         ),
       );
     }
 
     if (_collegeId == null || _collegeId!.isEmpty) {
       return const Scaffold(
-        backgroundColor: Colors.black,
+        backgroundColor: AppColors.background,
         body: Center(
           child: Text(
             'College not set',
@@ -75,9 +76,9 @@ class _AnonHomeScreenState extends State<AnonHomeScreen> {
     }
 
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: AppColors.background,
       appBar: AppBar(
-        backgroundColor: Colors.black,
+        backgroundColor: AppColors.background,
         elevation: 0,
         title: const Text(
           'Anonymous',
@@ -91,7 +92,7 @@ class _AnonHomeScreenState extends State<AnonHomeScreen> {
 
       // 🔥 FLOATING CREATE GROUP
       floatingActionButton: FloatingActionButton.extended(
-        backgroundColor: Colors.deepPurple,
+        backgroundColor: AppColors.anonAccent,
         elevation: 8,
         icon: const Icon(Icons.add),
         label: const Text(
@@ -108,7 +109,7 @@ class _AnonHomeScreenState extends State<AnonHomeScreen> {
           ShaderMask(
             shaderCallback: (rect) => LinearGradient(
               colors: [
-                Colors.deepPurpleAccent,
+                AppColors.anonAccent,
                 Colors.white.withValues(alpha: 0.9),
               ],
             ).createShader(rect),
@@ -208,7 +209,7 @@ class _AnonHomeScreenState extends State<AnonHomeScreen> {
             const SizedBox(height: 28),
             ElevatedButton(
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.deepPurple,
+                backgroundColor: AppColors.anonAccent,
                 minimumSize: const Size(double.infinity, 52),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(18),
@@ -282,15 +283,15 @@ class _AnonGroupCard extends StatelessWidget {
           gradient: highlight
               ? LinearGradient(
             colors: [
-              Colors.deepPurple.withValues(alpha: 0.25),
-              Colors.deepPurple.withValues(alpha: 0.08),
+              AppColors.anonAccent.withValues(alpha: 0.25),
+              AppColors.anonAccent.withValues(alpha: 0.08),
             ],
           )
               : null,
           color: highlight ? null : const Color(0xFF1C1C1E),
           border: Border.all(
             color: highlight
-                ? Colors.deepPurple.withValues(alpha: 0.4)
+                ? AppColors.anonAccent.withValues(alpha: 0.4)
                 : Colors.white.withValues(alpha: 0.06),
           ),
         ),
@@ -301,7 +302,7 @@ class _AnonGroupCard extends StatelessWidget {
               height: 54,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: highlight ? Colors.deepPurple : const Color(0xFF2A2A2E),
+                color: highlight ? AppColors.anonAccent : const Color(0xFF2A2A2E),
               ),
               child: Icon(icon, color: Colors.white),
             ),

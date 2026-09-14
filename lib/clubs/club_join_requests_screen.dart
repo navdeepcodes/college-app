@@ -2,6 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../utils/dedupe_stream_rows.dart';
+import '../core/app_colors.dart';
+import '../core/haptics.dart';
+import '../core/widgets/avatar.dart';
+import '../core/widgets/empty_state.dart';
+import '../core/widgets/entrance.dart';
+import '../core/widgets/request_card.dart';
 
 class ClubJoinRequestsScreen extends StatelessWidget {
   final String clubId;
@@ -14,12 +20,7 @@ class ClubJoinRequestsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
-        backgroundColor: Colors.black,
-        elevation: 0,
-        title: const Text('Join Requests'),
-      ),
+      appBar: AppBar(title: const Text('Join requests')),
       body: StreamBuilder<List<Map<String, dynamic>>>(
         stream: Supabase.instance.client
             .from('club_join_requests')
@@ -27,9 +28,7 @@ class ClubJoinRequestsScreen extends StatelessWidget {
             .eq('club_id', clubId),
         builder: (context, snap) {
           if (snap.connectionState == ConnectionState.waiting) {
-            return const Center(
-              child: CircularProgressIndicator(color: Colors.deepPurple),
-            );
+            return const Center(child: CircularProgressIndicator());
           }
 
           final pending = dedupeStreamRowsById(snap.data ?? [])
@@ -37,7 +36,10 @@ class ClubJoinRequestsScreen extends StatelessWidget {
               .toList();
 
           if (pending.isEmpty) {
-            return const _EmptyState();
+            return const EmptyState(
+              icon: Icons.inbox_outlined,
+              title: 'No pending requests',
+            );
           }
 
           return ListView.builder(
@@ -46,10 +48,14 @@ class ClubJoinRequestsScreen extends StatelessWidget {
             itemBuilder: (context, index) {
               final data = pending[index];
 
-              return _RequestCard(
-                requestId: data['id'] as String,
-                clubId: clubId,
-                userId: data['user_id'] as String,
+              return Entrance(
+                key: ValueKey(data['id']),
+                delay: Duration(milliseconds: 30 * index),
+                child: _RequestCardWrapper(
+                  requestId: data['id'] as String,
+                  clubId: clubId,
+                  userId: data['user_id'] as String,
+                ),
               );
             },
           );
@@ -59,47 +65,23 @@ class ClubJoinRequestsScreen extends StatelessWidget {
   }
 }
 
-class _EmptyState extends StatelessWidget {
-  const _EmptyState();
-
-  @override
-  Widget build(BuildContext context) {
-    return const Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.inbox_outlined, size: 48, color: Colors.white24),
-          SizedBox(height: 14),
-          Text(
-            'No pending requests',
-            style: TextStyle(color: Colors.white54),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _RequestCard extends StatefulWidget {
+class _RequestCardWrapper extends StatefulWidget {
   final String requestId;
   final String clubId;
   final String userId;
 
-  const _RequestCard({
+  const _RequestCardWrapper({
     required this.requestId,
     required this.clubId,
     required this.userId,
   });
 
   @override
-  State<_RequestCard> createState() => _RequestCardState();
+  State<_RequestCardWrapper> createState() => _RequestCardWrapperState();
 }
 
-class _RequestCardState extends State<_RequestCard> {
+class _RequestCardWrapperState extends State<_RequestCardWrapper> {
   bool _busy = false;
-
-  String get requestId => widget.requestId;
-  String get userId => widget.userId;
 
   @override
   Widget build(BuildContext context) {
@@ -107,7 +89,7 @@ class _RequestCardState extends State<_RequestCard> {
       future: Supabase.instance.client
           .from('profiles')
           .select()
-          .eq('id', userId)
+          .eq('id', widget.userId)
           .limit(1),
       builder: (context, userSnap) {
         if (!userSnap.hasData) {
@@ -116,73 +98,18 @@ class _RequestCardState extends State<_RequestCard> {
 
         if (userSnap.data!.isEmpty) return const SizedBox();
         final user = userSnap.data!.first;
+        final name = user['name'] ?? 'Student';
 
-        return Container(
-          margin: const EdgeInsets.only(bottom: 14),
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: const Color(0xFF151515),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: Colors.white10),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  CircleAvatar(
-                    radius: 22,
-                    backgroundImage: user['photo_url'] != null
-                        ? NetworkImage(user['photo_url'])
-                        : null,
-                    child: user['photo_url'] == null
-                        ? const Icon(Icons.person, size: 20)
-                        : null,
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          user['name'] ?? 'Student',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          '${user['branch'] ?? ''} • ${user['year'] ?? ''}',
-                          style: const TextStyle(
-                            color: Colors.white54,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: _RejectButton(
-                      onTap: _busy ? null : () => _reject(context),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _ApproveButton(
-                      busy: _busy,
-                      onTap: _busy ? null : () => _approve(context),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
+        return RequestCard(
+          leading: AppAvatar(photoUrl: user['photo_url'], name: name, radius: 22),
+          title: name,
+          subtitle: '${user['branch'] ?? ''} · ${user['year'] ?? ''}',
+          busy: _busy,
+          secondaryLabel: 'Reject',
+          onSecondary: () => _reject(context),
+          primaryLabel: 'Approve',
+          primaryColor: AppColors.success,
+          onPrimary: () => _approve(context),
         );
       },
     );
@@ -195,14 +122,13 @@ class _RequestCardState extends State<_RequestCard> {
     try {
       await Supabase.instance.client.rpc(
         'approve_club_join_request',
-        params: {'p_request_id': requestId},
+        params: {'p_request_id': widget.requestId},
       );
 
-      messenger.showSnackBar(
-        const SnackBar(content: Text('Member approved')),
-      );
+      AppHaptics.confirm();
+      messenger.showSnackBar(const SnackBar(content: Text('Member approved')));
     } catch (e) {
-      messenger.showSnackBar(SnackBar(content: Text('Approval failed: $e')));
+      messenger.showSnackBar(const SnackBar(content: Text('Approval failed. Try again.')));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -216,81 +142,13 @@ class _RequestCardState extends State<_RequestCard> {
       await Supabase.instance.client
           .from('club_join_requests')
           .delete()
-          .eq('id', requestId);
+          .eq('id', widget.requestId);
 
-      messenger.showSnackBar(
-        const SnackBar(content: Text('Request rejected')),
-      );
+      messenger.showSnackBar(const SnackBar(content: Text('Request rejected')));
     } catch (e) {
-      messenger.showSnackBar(SnackBar(content: Text('Reject failed: $e')));
+      messenger.showSnackBar(const SnackBar(content: Text('Reject failed. Try again.')));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
-  }
-}
-
-class _ApproveButton extends StatelessWidget {
-  final VoidCallback? onTap;
-  final bool busy;
-
-  const _ApproveButton({required this.onTap, this.busy = false});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        height: 44,
-        decoration: BoxDecoration(
-          color: busy ? Colors.green.withValues(alpha: 0.5) : Colors.green,
-          borderRadius: BorderRadius.circular(22),
-        ),
-        alignment: Alignment.center,
-        child: busy
-            ? const SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: Colors.white,
-                ),
-              )
-            : const Text(
-                'Approve',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-      ),
-    );
-  }
-}
-
-class _RejectButton extends StatelessWidget {
-  final VoidCallback? onTap;
-
-  const _RejectButton({required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        height: 44,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(22),
-          border: Border.all(color: Colors.redAccent),
-        ),
-        alignment: Alignment.center,
-        child: const Text(
-          'Reject',
-          style: TextStyle(
-            color: Colors.redAccent,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-      ),
-    );
   }
 }

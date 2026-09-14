@@ -4,6 +4,9 @@ import 'package:google_sign_in/google_sign_in.dart';
 
 import '../../app/auth_gate.dart';
 import '../../auth/services/college_detector.dart';
+import '../../core/app_colors.dart';
+import '../../core/spacing.dart';
+import '../../core/widgets/entrance.dart';
 
 class SignupScreen extends StatefulWidget {
   const SignupScreen({super.key});
@@ -17,16 +20,6 @@ class _SignupScreenState extends State<SignupScreen> {
   final _passwordController = TextEditingController();
   String? _college;
   bool _loading = false;
-
-  final List<String> colleges = const [
-    'Ramaiah Institute of Technology',
-    'PES University',
-    'RV College of Engineering',
-    'BMS College of Engineering',
-    'Dayananda Sagar College of Engineering',
-    'NMIT – Nitte Meenakshi Institute of Technology',
-    'Christ University',
-  ];
 
   bool _isCollegeEmail(String email) {
     final e = email.toLowerCase();
@@ -214,102 +207,98 @@ class _SignupScreenState extends State<SignupScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
+      appBar: AppBar(),
       body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.fromLTRB(
+            AppSpace.xxxl, AppSpace.lg, AppSpace.xxxl, AppSpace.xxxl,
+          ),
           children: [
-            const SizedBox(height: 70),
-            const Text(
-              'Create your college account',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.w700,
-                color: Colors.white,
+            Entrance(
+              child: Text('Create your college account',
+                  style: Theme.of(context).textTheme.headlineSmall),
+            ),
+            const SizedBox(height: AppSpace.sm),
+            const Entrance(
+              delay: Duration(milliseconds: 60),
+              child: Text(
+                'A few details, then you\'re in',
+                style: TextStyle(color: AppColors.textSecondary, fontSize: 14),
               ),
             ),
-            const SizedBox(height: 32),
-            DropdownButtonFormField<String>(
-              initialValue: _college,
-              isExpanded: true,
-              dropdownColor: Colors.grey.shade900,
-              items: colleges
-                  .map(
-                    (c) => DropdownMenuItem(
-                      value: c,
-                      child: Text(
-                        c,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(color: Colors.white),
-                      ),
-                    ),
-                  )
-                  .toList(),
-              onChanged: (v) => setState(() => _college = v),
-              decoration: InputDecoration(
-                labelText: 'Select your college',
-                filled: true,
-                fillColor: Colors.grey.shade900,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
+            const SizedBox(height: AppSpace.xxxl),
+            Entrance(
+              delay: const Duration(milliseconds: 100),
+              child: DropdownButtonFormField<String>(
+                initialValue: _college,
+                isExpanded: true,
+                items: kCollegeOptions
+                    .map((c) => DropdownMenuItem(
+                          value: c,
+                          child: Text(c, overflow: TextOverflow.ellipsis),
+                        ))
+                    .toList(),
+                onChanged: (v) => setState(() => _college = v),
+                decoration: const InputDecoration(
+                  labelText: 'Your college',
+                  prefixIcon: Icon(Icons.school_outlined),
                 ),
               ),
             ),
-            const SizedBox(height: 20),
-            TextField(
-              controller: _emailController,
-              keyboardType: TextInputType.emailAddress,
-              style: const TextStyle(color: Colors.white),
-              decoration: InputDecoration(
-                labelText: 'College email',
-                filled: true,
-                fillColor: Colors.grey.shade900,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
+            const SizedBox(height: AppSpace.lg),
+            Entrance(
+              delay: const Duration(milliseconds: 140),
+              child: TextField(
+                controller: _emailController,
+                keyboardType: TextInputType.emailAddress,
+                decoration: const InputDecoration(
+                  labelText: 'College email',
+                  prefixIcon: Icon(Icons.mail_outline_rounded),
                 ),
               ),
             ),
-            const SizedBox(height: 14),
-            TextField(
-              controller: _passwordController,
-              obscureText: true,
-              style: const TextStyle(color: Colors.white),
-              decoration: InputDecoration(
-                labelText: 'Password',
-                filled: true,
-                fillColor: Colors.grey.shade900,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
+            const SizedBox(height: AppSpace.lg),
+            Entrance(
+              delay: const Duration(milliseconds: 180),
+              child: TextField(
+                controller: _passwordController,
+                obscureText: true,
+                decoration: const InputDecoration(
+                  labelText: 'Password',
+                  helperText: 'At least 6 characters',
+                  prefixIcon: Icon(Icons.lock_outline_rounded),
                 ),
               ),
             ),
-            const SizedBox(height: 28),
-            ElevatedButton(
-              onPressed: _loading ? null : _signupWithEmail,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.white,
-                foregroundColor: Colors.black,
-                minimumSize: const Size.fromHeight(52),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(28),
+            const SizedBox(height: AppSpace.xxl),
+            Entrance(
+              delay: const Duration(milliseconds: 220),
+              child: SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: _loading ? null : _signupWithEmail,
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 150),
+                    child: _loading
+                        ? const SizedBox(
+                            key: ValueKey('loading'),
+                            height: 20,
+                            width: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          )
+                        : const Text('Sign up', key: ValueKey('label')),
+                  ),
                 ),
               ),
-              child: _loading
-                  ? const SizedBox(
-                      height: 22,
-                      width: 22,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Text('Sign up',
-                      style: TextStyle(fontWeight: FontWeight.bold)),
             ),
-            const SizedBox(height: 12),
-            TextButton(
-              onPressed: _loading ? null : _signupWithGoogle,
-              child: const Text(
-                'Continue with Google',
-                style: TextStyle(color: Colors.white70),
+            const SizedBox(height: AppSpace.md),
+            Entrance(
+              delay: const Duration(milliseconds: 260),
+              child: OutlinedButton.icon(
+                onPressed: _loading ? null : _signupWithGoogle,
+                icon: const Icon(Icons.g_mobiledata_rounded, size: 24),
+                label: const Text('Continue with Google'),
+                style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(52)),
               ),
             ),
           ],

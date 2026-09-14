@@ -4,6 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../core/app_colors.dart';
+import '../core/spacing.dart';
+import '../core/widgets/pressable.dart';
+
 class CreateClubScreen extends StatefulWidget {
   const CreateClubScreen({super.key});
 
@@ -107,46 +111,52 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Create Club')),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(AppSpace.lg),
         children: [
-          _input('Club Name', _clubNameController),
+          _input('Club name', _clubNameController),
           _input('What is this club for?', _descriptionController,
               maxLines: 3),
-          _input('Mobile Number', _phoneController,
+          _input('Mobile number', _phoneController,
               keyboard: TextInputType.phone),
           _input('USN', _usnController),
-          const SizedBox(height: 16),
-          GestureDetector(
+          const SizedBox(height: AppSpace.sm),
+          Pressable(
             onTap: _pickIdCard,
             child: Container(
               height: 160,
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(16),
-                color: Colors.white.withAlpha(20),
+                borderRadius: BorderRadius.circular(AppRadius.lg),
+                color: AppColors.surfaceSunken,
+                border: Border.all(color: AppColors.border),
               ),
               child: _idCardImage != null
                   ? ClipRRect(
-                      borderRadius: BorderRadius.circular(16),
+                      borderRadius: BorderRadius.circular(AppRadius.lg),
                       child: Image.file(_idCardImage!, fit: BoxFit.cover),
                     )
-                  : const Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.upload_file, size: 40),
-                          SizedBox(height: 8),
-                          Text('Upload College ID Card'),
-                        ],
-                      ),
+                  : Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.upload_file_outlined, size: 34, color: AppColors.textSecondary),
+                        const SizedBox(height: 8),
+                        Text('Upload college ID card', style: Theme.of(context).textTheme.bodyMedium),
+                      ],
                     ),
             ),
           ),
-          const SizedBox(height: 24),
-          ElevatedButton(
-            onPressed: _loading ? null : _submitRequest,
-            child: _loading
-                ? const CircularProgressIndicator()
-                : const Text('Submit for Approval'),
+          const SizedBox(height: AppSpace.xxl),
+          SizedBox(
+            height: 52,
+            child: ElevatedButton(
+              onPressed: _loading ? null : _submitRequest,
+              child: _loading
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    )
+                  : const Text('Submit for approval'),
+            ),
           ),
         ],
       ),
@@ -160,7 +170,7 @@ class _CreateClubScreenState extends State<CreateClubScreen> {
     TextInputType keyboard = TextInputType.text,
   }) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.only(bottom: AppSpace.md),
       child: TextField(
         controller: controller,
         maxLines: maxLines,

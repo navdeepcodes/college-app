@@ -3,6 +3,12 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../moderation/text_filter.dart';
 import '../utils/dedupe_stream_rows.dart';
+import '../core/app_colors.dart';
+import '../core/haptics.dart';
+import '../core/spacing.dart';
+import '../core/widgets/chat_bubble.dart';
+import '../core/widgets/empty_state.dart';
+import '../core/widgets/entrance.dart';
 
 class ClubChatScreen extends StatefulWidget {
   final String clubId;
@@ -42,7 +48,7 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
     if (!filterResult.isAllowed) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('⚠️ Message blocked by filter')),
+          const SnackBar(content: Text('Message blocked by filter')),
         );
       }
       return;
@@ -50,6 +56,7 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
 
     setState(() => _sending = true);
     _controller.clear();
+    AppHaptics.tap();
 
     try {
       await Supabase.instance.client.from('club_messages').insert({
@@ -85,11 +92,7 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
     }
 
     return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
-        backgroundColor: Colors.black,
-        title: Text(widget.clubName),
-      ),
+      appBar: AppBar(title: Text(widget.clubName)),
       body: Column(
         children: [
           Expanded(
@@ -102,55 +105,44 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
                   .limit(100),
               builder: (context, snap) {
                 if (snap.hasError) {
-                  return const Center(
-                    child: Text(
-                      'Failed to load messages',
-                      style: TextStyle(color: Colors.white54),
-                    ),
+                  return const EmptyState(
+                    icon: Icons.error_outline_rounded,
+                    title: "Couldn't load messages",
+                    isError: true,
                   );
                 }
 
                 if (!snap.hasData) {
-                  return const Center(
-                    child: CircularProgressIndicator(),
-                  );
+                  return const Center(child: CircularProgressIndicator());
                 }
 
                 final docs = dedupeStreamRowsById(snap.data!);
 
                 if (docs.isEmpty) {
-                  return const Center(
-                    child: Text(
-                      'No messages yet',
-                      style: TextStyle(color: Colors.white54),
-                    ),
+                  return const EmptyState(
+                    icon: Icons.forum_outlined,
+                    title: 'No messages yet',
+                    message: 'Start the conversation.',
                   );
                 }
 
                 return ListView.builder(
                   reverse: true,
-                  padding: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.all(AppSpace.md),
                   itemCount: docs.length,
                   itemBuilder: (_, i) {
                     final data = docs[i];
                     final isMe = data['user_id'] == _uid;
+                    final showTail = i == 0 || docs[i - 1]['user_id'] != data['user_id'];
 
-                    return Align(
-                      alignment:
-                          isMe ? Alignment.centerRight : Alignment.centerLeft,
-                      child: Container(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: isMe
-                              ? Colors.deepPurple
-                              : Colors.white.withAlpha(20),
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: Text(
-                          data['text'] ?? '',
-                          style: const TextStyle(color: Colors.white),
-                        ),
+                    return Entrance(
+                      key: ValueKey(data['id']),
+                      offset: const Offset(0, 0.15),
+                      duration: const Duration(milliseconds: 180),
+                      child: ChatBubble(
+                        text: data['text'] ?? '',
+                        isMe: isMe,
+                        showTail: showTail,
                       ),
                     );
                   },
@@ -160,27 +152,46 @@ class _ClubChatScreenState extends State<ClubChatScreen> {
           ),
           SafeArea(
             child: Container(
-              padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-              color: const Color(0xFF1C1C1E),
+              padding: const EdgeInsets.fromLTRB(10, 8, 8, 8),
+              decoration: const BoxDecoration(
+                border: Border(top: BorderSide(color: AppColors.border)),
+              ),
               child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   Expanded(
                     child: TextField(
                       controller: _controller,
-                      style: const TextStyle(color: Colors.white),
+                      textCapitalization: TextCapitalization.sentences,
+                      minLines: 1,
+                      maxLines: 5,
                       decoration: const InputDecoration(
                         hintText: 'Message club…',
-                        hintStyle: TextStyle(color: Colors.white54),
-                        border: InputBorder.none,
+                        contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                       ),
                     ),
                   ),
-                  IconButton(
-                    icon: Icon(
-                      _sending ? Icons.hourglass_top : Icons.send,
-                      color: Colors.deepPurple,
+                  const SizedBox(width: 6),
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 2),
+                    child: Material(
+                      color: AppColors.accent,
+                      shape: const CircleBorder(),
+                      child: InkWell(
+                        onTap: _sending ? null : _send,
+                        customBorder: const CircleBorder(),
+                        child: SizedBox(
+                          width: 44,
+                          height: 44,
+                          child: _sending
+                              ? const Padding(
+                                  padding: EdgeInsets.all(13),
+                                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                )
+                              : const Icon(Icons.arrow_upward_rounded, color: Colors.white, size: 20),
+                        ),
+                      ),
                     ),
-                    onPressed: _send,
                   ),
                 ],
               ),

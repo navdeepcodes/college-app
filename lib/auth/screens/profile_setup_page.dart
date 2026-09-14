@@ -6,6 +6,10 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../navigation/bottom_nav_shell.dart';
 import '../../auth/services/college_detector.dart';
+import '../../core/app_colors.dart';
+import '../../core/haptics.dart';
+import '../../core/spacing.dart';
+import '../../core/widgets/entrance.dart';
 
 class ProfileSetupPage extends StatefulWidget {
   const ProfileSetupPage({super.key});
@@ -38,24 +42,6 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
     'Mechanical Engineering (ME)',
     'Civil Engineering (CE)',
     'Aerospace Engineering',
-    'Other',
-  ];
-
-  // Found live, on-device, testing a real @rvce.edu.in signup: this list
-  // only ever had NMIT on it, so every RVCE/BMS/PES student -- all
-  // domains CollegeDetector (college_detector.dart) already recognizes
-  // and correctly resolves to the right college_id -- saw a dropdown
-  // with no real option for their own college and no free-text entry
-  // behind "Other" either; the display name would silently end up
-  // literally "Other". The canonical college_id was never wrong (it's
-  // derived from the email domain, not this list), but the college
-  // display name shown throughout the app was. Extended to match every
-  // domain CollegeDetector supports.
-  final _colleges = const [
-    'Nitte Meenakshi Institute of Technology',
-    'RV College of Engineering',
-    'BMS College of Engineering',
-    'PES University',
     'Other',
   ];
 
@@ -148,9 +134,27 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
 
       if (!mounted) return;
 
+      AppHaptics.confirm();
+
+      // A single deliberate "graduation" moment — the one custom page
+      // transition in the app — rather than the default instant cut, for
+      // the exact instant a new user's profile becomes real.
       Navigator.pushAndRemoveUntil(
         context,
-        MaterialPageRoute(builder: (_) => const BottomNavShell()),
+        PageRouteBuilder(
+          transitionDuration: const Duration(milliseconds: 480),
+          pageBuilder: (_, __, ___) => const BottomNavShell(),
+          transitionsBuilder: (_, animation, __, child) {
+            final curved = CurvedAnimation(parent: animation, curve: Curves.easeOutCubic);
+            return FadeTransition(
+              opacity: curved,
+              child: ScaleTransition(
+                scale: Tween(begin: 0.96, end: 1.0).animate(curved),
+                child: child,
+              ),
+            );
+          },
+        ),
         (_) => false,
       );
     } catch (e) {
@@ -175,59 +179,103 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
         centerTitle: true,
       ),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 24, 20, 32),
+        padding: const EdgeInsets.fromLTRB(
+          AppSpace.xl, AppSpace.xxl, AppSpace.xl, AppSpace.xxxl,
+        ),
         children: [
-          Center(
-            child: GestureDetector(
-              onTap: _pickImage,
-              child: Stack(
-                alignment: Alignment.bottomRight,
-                children: [
-                  CircleAvatar(
-                    radius: 58,
-                    backgroundColor: Colors.white.withValues(alpha: 0.08),
-                    backgroundImage: _image != null ? FileImage(_image!) : null,
-                    child: _image == null
-                        ? const Icon(Icons.camera_alt, size: 30, color: Colors.white70)
-                        : null,
-                  ),
-                  Container(
-                    padding: const EdgeInsets.all(6),
-                    decoration: const BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Colors.deepPurple,
+          Entrance(
+            child: Center(
+              child: GestureDetector(
+                onTap: _pickImage,
+                child: Stack(
+                  alignment: Alignment.bottomRight,
+                  children: [
+                    CircleAvatar(
+                      radius: 56,
+                      backgroundColor: AppColors.surfaceSunken,
+                      backgroundImage: _image != null ? FileImage(_image!) : null,
+                      child: _image == null
+                          ? const Icon(Icons.add_a_photo_outlined, size: 26, color: AppColors.textSecondary)
+                          : null,
                     ),
-                    child: const Icon(Icons.edit, size: 14),
-                  ),
-                ],
+                    Container(
+                      padding: const EdgeInsets.all(7),
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: AppColors.accent,
+                        border: Border.all(color: AppColors.background, width: 2),
+                      ),
+                      child: const Icon(Icons.edit, size: 14, color: Colors.white),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
-          const SizedBox(height: 32),
-          _editable(_nameController, 'Full Name'),
-          const SizedBox(height: 14),
-          _editable(_nicknameController, 'Nickname'),
-          const SizedBox(height: 14),
-          _editable(_bioController, 'Bio', maxLines: 2),
-          const SizedBox(height: 20),
-          _dropdown('College', _college, _colleges, (v) => setState(() => _college = v)),
-          const SizedBox(height: 14),
-          _dropdown('Year', _year, _years, (v) => setState(() => _year = v)),
-          const SizedBox(height: 14),
-          _dropdown('Branch', _branch, _branches, (v) => setState(() => _branch = v)),
-          const SizedBox(height: 36),
-          SizedBox(
-            height: 50,
-            child: ElevatedButton(
-              onPressed: _loading ? null : _submit,
-              child: _loading
-                  ? const SizedBox(
-                      width: 22,
-                      height: 22,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Text('Continue',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+          const SizedBox(height: AppSpace.sm),
+          Entrance(
+            delay: const Duration(milliseconds: 40),
+            child: Center(
+              child: Text(
+                'Add a photo so people recognize you',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
+          ),
+          const SizedBox(height: AppSpace.xxxl),
+
+          const _SectionLabel('Your identity'),
+          Entrance(
+            delay: const Duration(milliseconds: 60),
+            child: _editable(_nameController, 'Full name'),
+          ),
+          const SizedBox(height: AppSpace.md),
+          Entrance(
+            delay: const Duration(milliseconds: 90),
+            child: _editable(_nicknameController, 'Nickname'),
+          ),
+          const SizedBox(height: AppSpace.md),
+          Entrance(
+            delay: const Duration(milliseconds: 120),
+            child: _editable(_bioController, 'Bio', maxLines: 2),
+          ),
+
+          const SizedBox(height: AppSpace.xxl),
+          const _SectionLabel('Your college'),
+          Entrance(
+            delay: const Duration(milliseconds: 150),
+            child: _dropdown('College', _college, kCollegeOptions, (v) => setState(() => _college = v)),
+          ),
+          const SizedBox(height: AppSpace.md),
+          Entrance(
+            delay: const Duration(milliseconds: 180),
+            child: _dropdown('Year', _year, _years, (v) => setState(() => _year = v)),
+          ),
+          const SizedBox(height: AppSpace.md),
+          Entrance(
+            delay: const Duration(milliseconds: 210),
+            child: _dropdown('Branch', _branch, _branches, (v) => setState(() => _branch = v)),
+          ),
+
+          const SizedBox(height: AppSpace.xxxl),
+          Entrance(
+            delay: const Duration(milliseconds: 250),
+            child: SizedBox(
+              height: 54,
+              child: ElevatedButton(
+                onPressed: _loading ? null : _submit,
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 150),
+                  child: _loading
+                      ? const SizedBox(
+                          key: ValueKey('loading'),
+                          width: 22,
+                          height: 22,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        )
+                      : const Text('Continue', key: ValueKey('label')),
+                ),
+              ),
             ),
           ),
         ],
@@ -239,10 +287,7 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
     return TextField(
       controller: c,
       maxLines: maxLines,
-      decoration: InputDecoration(
-        labelText: label,
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-      ),
+      decoration: InputDecoration(labelText: label),
     );
   }
 
@@ -257,9 +302,27 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
       isExpanded: true,
       items: items.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
       onChanged: onChanged,
-      decoration: InputDecoration(
-        labelText: label,
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+      decoration: InputDecoration(labelText: label),
+    );
+  }
+}
+
+class _SectionLabel extends StatelessWidget {
+  final String text;
+  const _SectionLabel(this.text);
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpace.md),
+      child: Text(
+        text.toUpperCase(),
+        style: const TextStyle(
+          fontSize: 11.5,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 1.1,
+          color: AppColors.textMuted,
+        ),
       ),
     );
   }

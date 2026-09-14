@@ -5,6 +5,8 @@ import '../auth/screens/welcome_screen.dart';
 import '../auth/screens/profile_setup_page.dart';
 import '../navigation/bottom_nav_shell.dart';
 import '../auth/services/college_detector.dart';
+import '../core/app_colors.dart';
+import '../core/spacing.dart';
 
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
@@ -203,31 +205,29 @@ class _BootstrapError extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: AppColors.background,
       body: Center(
         child: Padding(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.all(AppSpace.xxxl),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.cloud_off, color: Colors.white54, size: 40),
-              const SizedBox(height: 16),
-              const Text(
+              const Icon(Icons.cloud_off_rounded, color: AppColors.textMuted, size: 40),
+              const SizedBox(height: AppSpace.lg),
+              Text(
                 "Couldn't reach the server. Check your connection and try again.",
                 textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.white70),
+                style: Theme.of(context).textTheme.bodyMedium,
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: AppSpace.xl),
               ElevatedButton(
                 onPressed: onRetry,
                 child: const Text('Retry'),
               ),
+              const SizedBox(height: AppSpace.sm),
               TextButton(
                 onPressed: () => Supabase.instance.client.auth.signOut(),
-                child: const Text(
-                  'Sign out',
-                  style: TextStyle(color: Colors.white54),
-                ),
+                child: const Text('Sign out'),
               ),
             ],
           ),
@@ -245,9 +245,9 @@ class _Loading extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return const Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: AppColors.background,
       body: Center(
-        child: CircularProgressIndicator(color: Colors.redAccent),
+        child: CircularProgressIndicator(color: AppColors.accentBright),
       ),
     );
   }

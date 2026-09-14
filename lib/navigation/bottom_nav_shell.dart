@@ -7,6 +7,10 @@ import '../search/search_screen.dart';
 import '../clubs/clubs_screen.dart';
 import '../profile/profile_screen.dart';
 import '../anon/anon_home_screen.dart';
+import '../core/app_colors.dart';
+import '../core/haptics.dart';
+import '../core/motion.dart';
+import '../core/widgets/avatar.dart';
 
 class BottomNavShell extends StatefulWidget {
   const BottomNavShell({super.key});
@@ -24,15 +28,20 @@ class _BottomNavShellState extends State<BottomNavShell> {
 
     if (user == null) {
       return const Scaffold(
-        backgroundColor: Colors.black,
+        backgroundColor: AppColors.background,
         body: Center(
-          child: CircularProgressIndicator(color: Colors.deepPurple),
+          child: CircularProgressIndicator(color: AppColors.accentBright),
         ),
       );
     }
 
     final uid = user.id;
 
+    // IndexedStack instead of rebuilding `screens[_currentIndex]` from
+    // scratch on every switch: each tab now keeps its scroll position,
+    // its in-flight stream subscriptions, and its widget state across
+    // switches, instead of re-fetching and resetting to the top every
+    // single time — a real state/performance fix, not just visual.
     final screens = [
       const FeedScreen(),
       const SearchScreen(),
@@ -43,99 +52,110 @@ class _BottomNavShellState extends State<BottomNavShell> {
 
     return Scaffold(
       extendBody: true,
-      body: screens[_currentIndex],
+      body: IndexedStack(index: _currentIndex, children: screens),
 
       bottomNavigationBar: ClipRRect(
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
         child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
           child: Container(
             decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.75),
+              color: AppColors.background.withValues(alpha: 0.78),
               border: const Border(
-                top: BorderSide(color: Colors.white12, width: 0.5),
+                top: BorderSide(color: AppColors.border, width: 0.75),
               ),
             ),
-            child: BottomNavigationBar(
-              currentIndex: _currentIndex,
-              type: BottomNavigationBarType.fixed,
-              backgroundColor: Colors.transparent,
-              elevation: 0,
-              selectedItemColor: Colors.white,
-              unselectedItemColor: Colors.white54,
-              showSelectedLabels: false,
-              showUnselectedLabels: false,
-
-              onTap: (index) async {
-                if (index == 2) {
-                  await Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const AnonHomeScreen(),
-                    ),
-                  );
-                  return;
-                }
-                setState(() => _currentIndex = index);
-              },
-
-              items: [
-                const BottomNavigationBarItem(
-                  icon: Icon(Icons.home_rounded),
-                  label: 'Home',
-                ),
-                const BottomNavigationBarItem(
-                  icon: Icon(Icons.search_rounded),
-                  label: 'Search',
-                ),
-                BottomNavigationBarItem(
-                  icon: _AnonNavIcon(
-                    selected: _currentIndex == 2,
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            child: SafeArea(
+              top: false,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  _NavIcon(
+                    icon: Icons.home_rounded,
+                    selected: _currentIndex == 0,
+                    onTap: () => _select(0),
                   ),
-                  label: 'Anon',
-                ),
-                const BottomNavigationBarItem(
-                  icon: Icon(Icons.groups_rounded),
-                  label: 'Clubs',
-                ),
-                BottomNavigationBarItem(
-                  icon: _ProfileNavIcon(uid: uid),
-                  label: 'Profile',
-                ),
-              ],
+                  _NavIcon(
+                    icon: Icons.search_rounded,
+                    selected: _currentIndex == 1,
+                    onTap: () => _select(1),
+                  ),
+                  _NavIcon(
+                    icon: Icons.visibility_off_rounded,
+                    selected: false,
+                    onTap: _openAnon,
+                  ),
+                  _NavIcon(
+                    icon: Icons.groups_rounded,
+                    selected: _currentIndex == 3,
+                    onTap: () => _select(3),
+                  ),
+                  _ProfileNavIcon(
+                    uid: uid,
+                    selected: _currentIndex == 4,
+                    onTap: () => _select(4),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
       ),
     );
   }
+
+  void _select(int index) {
+    if (index == _currentIndex) return;
+    AppHaptics.select();
+    setState(() => _currentIndex = index);
+  }
+
+  Future<void> _openAnon() async {
+    AppHaptics.select();
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const AnonHomeScreen()),
+    );
+  }
 }
 
-class _AnonNavIcon extends StatelessWidget {
+class _NavIcon extends StatelessWidget {
+  final IconData icon;
   final bool selected;
+  final VoidCallback onTap;
 
-  const _AnonNavIcon({required this.selected});
+  const _NavIcon({required this.icon, required this.selected, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 180),
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: selected
-            ? Colors.deepPurple.withValues(alpha: 0.35)
-            : Colors.transparent,
+    return InkResponse(
+      onTap: onTap,
+      radius: 28,
+      child: AnimatedContainer(
+        duration: AppMotion.fast,
+        curve: AppMotion.standard,
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: selected ? AppColors.accent.withValues(alpha: 0.22) : Colors.transparent,
+        ),
+        child: Icon(
+          icon,
+          size: 22,
+          color: selected ? AppColors.textPrimary : AppColors.textMuted,
+        ),
       ),
-      child: const Icon(Icons.visibility_off_rounded, size: 22),
     );
   }
 }
 
 class _ProfileNavIcon extends StatelessWidget {
   final String uid;
+  final bool selected;
+  final VoidCallback onTap;
 
-  const _ProfileNavIcon({required this.uid});
+  const _ProfileNavIcon({required this.uid, required this.selected, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -147,19 +167,28 @@ class _ProfileNavIcon extends StatelessWidget {
           .limit(1),
       builder: (context, snap) {
         String? photoUrl;
+        String name = '';
 
         if (snap.hasData && snap.data!.isNotEmpty) {
           photoUrl = snap.data!.first['photo_url'];
+          name = snap.data!.first['name'] ?? '';
         }
 
-        return CircleAvatar(
-          radius: 14,
-          backgroundColor: Colors.white24,
-          backgroundImage:
-          photoUrl != null ? NetworkImage(photoUrl) : null,
-          child: photoUrl == null
-              ? const Icon(Icons.person, size: 16)
-              : null,
+        return InkResponse(
+          onTap: onTap,
+          radius: 28,
+          child: AnimatedContainer(
+            duration: AppMotion.fast,
+            padding: const EdgeInsets.all(3),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: selected ? AppColors.accentBright : Colors.transparent,
+                width: 1.6,
+              ),
+            ),
+            child: AppAvatar(photoUrl: photoUrl, name: name, radius: 12),
+          ),
         );
       },
     );

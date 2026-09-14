@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../core/widgets/avatar.dart';
+import '../core/widgets/empty_state.dart';
 import 'chat_screen.dart';
 
 class StartConversationScreen extends StatelessWidget {
@@ -30,8 +32,10 @@ class StartConversationScreen extends StatelessWidget {
               .toList();
 
           if (friendRows.isEmpty) {
-            return const Center(
-              child: Text('No friends yet'),
+            return const EmptyState(
+              icon: Icons.people_outline_rounded,
+              title: 'No friends yet',
+              message: 'Add friends first, then start a chat with them here.',
             );
           }
 
@@ -57,13 +61,10 @@ class StartConversationScreen extends StatelessWidget {
                   final user = userSnap.data!.first;
 
                   return ListTile(
-                    leading: CircleAvatar(
-                      backgroundImage: user['photo_url'] != null
-                          ? NetworkImage(user['photo_url'])
-                          : null,
-                      child: user['photo_url'] == null
-                          ? const Icon(Icons.person)
-                          : null,
+                    leading: AppAvatar(
+                      photoUrl: user['photo_url'],
+                      name: user['name'] ?? 'User',
+                      radius: 22,
                     ),
                     title: Text(user['name'] ?? 'User'),
                     subtitle: Text(

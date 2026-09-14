@@ -4,6 +4,13 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'club_profile_screen.dart';
 import 'create_club_screen.dart';
 import '../utils/dedupe_stream_rows.dart';
+import '../core/app_colors.dart';
+import '../core/motion.dart';
+import '../core/spacing.dart';
+import '../core/widgets/empty_state.dart';
+import '../core/widgets/entrance.dart';
+import '../core/widgets/pressable.dart';
+import '../core/widgets/skeleton.dart';
 
 class ClubsScreen extends StatefulWidget {
   const ClubsScreen({super.key});
@@ -29,14 +36,11 @@ class _ClubsScreenState extends State<ClubsScreen> {
     final uid = Supabase.instance.client.auth.currentUser?.id;
 
     return Scaffold(
-      backgroundColor: Colors.black,
       appBar: AppBar(
-        backgroundColor: Colors.black,
-        elevation: 0,
-        title: const Text('Clubs', style: TextStyle(fontWeight: FontWeight.w700)),
+        title: const Text('Clubs'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.add_circle_outline),
+            icon: const Icon(Icons.add_circle_outline_rounded),
             onPressed: () {
               Navigator.push(
                 context,
@@ -49,20 +53,23 @@ class _ClubsScreenState extends State<ClubsScreen> {
       body: uid == null
           ? const Center(child: Text('Please login again'))
           : Column(
-        children: [
-          const SizedBox(height: 12),
-          _SegmentedControl(
-            selectedIndex: _selectedTab,
-            onChanged: (i) => setState(() => _selectedTab = i),
-          ),
-          const SizedBox(height: 16),
-          Expanded(
-            child: _selectedTab == 0
-                ? _YourClubs(uid: uid)
-                : _ExploreClubs(isAdmin: _isAdmin),
-          ),
-        ],
-      ),
+              children: [
+                const SizedBox(height: AppSpace.sm),
+                _SegmentedControl(
+                  selectedIndex: _selectedTab,
+                  onChanged: (i) => setState(() => _selectedTab = i),
+                ),
+                const SizedBox(height: AppSpace.lg),
+                Expanded(
+                  child: AnimatedSwitcher(
+                    duration: AppMotion.fast,
+                    child: _selectedTab == 0
+                        ? _YourClubs(key: const ValueKey('your'), uid: uid)
+                        : _ExploreClubs(key: const ValueKey('explore'), isAdmin: _isAdmin),
+                  ),
+                ),
+              ],
+            ),
     );
   }
 }
@@ -83,16 +90,17 @@ class _SegmentedControl extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16),
+      margin: const EdgeInsets.symmetric(horizontal: AppSpace.lg),
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.06),
-        borderRadius: BorderRadius.circular(32),
+        color: AppColors.surfaceSunken,
+        borderRadius: BorderRadius.circular(AppRadius.pill),
+        border: Border.all(color: AppColors.border),
       ),
       child: Row(
         children: [
           _SegmentButton(
-            label: 'Your Clubs',
+            label: 'Your clubs',
             selected: selectedIndex == 0,
             onTap: () => onChanged(0),
           ),
@@ -124,18 +132,20 @@ class _SegmentButton extends StatelessWidget {
       child: GestureDetector(
         onTap: onTap,
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          padding: const EdgeInsets.symmetric(vertical: 12),
+          duration: AppMotion.fast,
+          curve: AppMotion.standard,
+          padding: const EdgeInsets.symmetric(vertical: 11),
           decoration: BoxDecoration(
-            color: selected ? Colors.deepPurple : Colors.transparent,
-            borderRadius: BorderRadius.circular(28),
+            color: selected ? AppColors.accent : Colors.transparent,
+            borderRadius: BorderRadius.circular(AppRadius.pill),
           ),
           child: Text(
             label,
             textAlign: TextAlign.center,
             style: TextStyle(
               fontWeight: FontWeight.w600,
-              color: selected ? Colors.white : Colors.white70,
+              fontSize: 13.5,
+              color: selected ? Colors.white : AppColors.textSecondary,
             ),
           ),
         ),
@@ -150,7 +160,7 @@ class _SegmentButton extends StatelessWidget {
 
 class _YourClubs extends StatelessWidget {
   final String uid;
-  const _YourClubs({required this.uid});
+  const _YourClubs({super.key, required this.uid});
 
   @override
   Widget build(BuildContext context) {
@@ -162,19 +172,22 @@ class _YourClubs extends StatelessWidget {
           .limit(200),
       builder: (context, snap) {
         if (snap.hasError) {
-          return const Center(child: Text('Failed to load your clubs'));
+          return const EmptyState(
+            icon: Icons.error_outline_rounded,
+            title: "Couldn't load your clubs",
+            isError: true,
+          );
         }
 
         if (snap.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
+          return const _ClubGridSkeleton();
         }
 
         if (!snap.hasData || snap.data!.isEmpty) {
-          return const Center(
-            child: Text(
-              'You are not part of any clubs yet',
-              style: TextStyle(color: Colors.white54),
-            ),
+          return const EmptyState(
+            icon: Icons.groups_outlined,
+            title: 'No clubs yet',
+            message: 'Join a club from Explore to see it here.',
           );
         }
 
@@ -194,7 +207,7 @@ class _YourClubs extends StatelessWidget {
 
 class _ExploreClubs extends StatelessWidget {
   final bool isAdmin;
-  const _ExploreClubs({required this.isAdmin});
+  const _ExploreClubs({super.key, required this.isAdmin});
 
   @override
   Widget build(BuildContext context) {
@@ -205,19 +218,22 @@ class _ExploreClubs extends StatelessWidget {
           .limit(200),
       builder: (context, snap) {
         if (snap.hasError) {
-          return const Center(child: Text('Failed to load clubs'));
+          return const EmptyState(
+            icon: Icons.error_outline_rounded,
+            title: "Couldn't load clubs",
+            isError: true,
+          );
         }
 
         if (snap.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
+          return const _ClubGridSkeleton();
         }
 
         if (!snap.hasData || snap.data!.isEmpty) {
-          return const Center(
-            child: Text(
-              'No clubs available yet',
-              style: TextStyle(color: Colors.white54),
-            ),
+          return const EmptyState(
+            icon: Icons.explore_outlined,
+            title: 'No clubs available yet',
+            message: 'Be the first to start one.',
           );
         }
 
@@ -228,6 +244,27 @@ class _ExploreClubs extends StatelessWidget {
           isAdmin: isAdmin,
         );
       },
+    );
+  }
+}
+
+class _ClubGridSkeleton extends StatelessWidget {
+  const _ClubGridSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return GridView.builder(
+      padding: const EdgeInsets.all(AppSpace.lg),
+      itemCount: 4,
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        crossAxisSpacing: 14,
+        mainAxisSpacing: 14,
+        childAspectRatio: 0.72,
+      ),
+      itemBuilder: (_, __) => const Skeleton(
+        borderRadius: BorderRadius.all(Radius.circular(AppRadius.xl)),
+      ),
     );
   }
 }
@@ -248,7 +285,7 @@ class _ClubGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GridView.builder(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(AppSpace.lg, 0, AppSpace.lg, 120),
       itemCount: clubIds.length,
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 2,
@@ -257,7 +294,11 @@ class _ClubGrid extends StatelessWidget {
         childAspectRatio: 0.72,
       ),
       itemBuilder: (_, i) {
-        return _ClubCard(clubId: clubIds[i], isAdmin: isAdmin);
+        return Entrance(
+          key: ValueKey(clubIds[i]),
+          duration: const Duration(milliseconds: 260),
+          child: _ClubCard(clubId: clubIds[i], isAdmin: isAdmin),
+        );
       },
     );
   }
@@ -285,19 +326,15 @@ class _ClubCard extends StatelessWidget {
           .eq('id', clubId)
           .limit(1),
       builder: (context, snap) {
-        if (snap.connectionState == ConnectionState.waiting) {
-          return _SkeletonCard();
-        }
-
-        if (!snap.hasData || snap.data!.isEmpty) {
-          return _SkeletonCard();
+        if (snap.connectionState == ConnectionState.waiting || !snap.hasData || snap.data!.isEmpty) {
+          return const Skeleton(borderRadius: BorderRadius.all(Radius.circular(AppRadius.xl)));
         }
 
         final data = snap.data!.first;
         final photoUrl =
             data['photo_url'] ?? data['image_url'] ?? data['logo_url'];
 
-        return GestureDetector(
+        return Pressable(
           onTap: () => Navigator.push(
             context,
             MaterialPageRoute(
@@ -306,22 +343,22 @@ class _ClubCard extends StatelessWidget {
           ),
           child: Container(
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(26),
+              borderRadius: BorderRadius.circular(AppRadius.xl),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.6),
+                  color: Colors.black.withValues(alpha: 0.45),
                   blurRadius: 18,
-                  offset: const Offset(0, 12),
+                  offset: const Offset(0, 10),
                 ),
               ],
             ),
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(26),
+              borderRadius: BorderRadius.circular(AppRadius.xl),
               child: Stack(
                 children: [
                   Positioned.fill(
                     child: photoUrl != null
-                        ? Image.network(photoUrl, fit: BoxFit.cover)
+                        ? Image.network(photoUrl, fit: BoxFit.cover, cacheWidth: 320)
                         : _fallback(),
                   ),
                   Positioned.fill(
@@ -359,7 +396,7 @@ class _ClubCard extends StatelessWidget {
                           '${data['members_count'] ?? 1} members',
                           style: const TextStyle(
                             fontSize: 11,
-                            color: Colors.white70,
+                            color: AppColors.textSecondary,
                           ),
                         ),
                       ],
@@ -376,32 +413,15 @@ class _ClubCard extends StatelessWidget {
 
   Widget _fallback() {
     return Container(
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
         gradient: LinearGradient(
-          colors: [
-            Colors.deepPurple.shade700,
-            Colors.deepPurple.shade400,
-          ],
+          colors: AppColors.accentGradientSoft,
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
         ),
       ),
       child: const Center(
-        child: Icon(Icons.groups, size: 44, color: Colors.white),
-      ),
-    );
-  }
-}
-
-// =====================================================
-// SKELETON PLACEHOLDER
-// =====================================================
-
-class _SkeletonCard extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.06),
-        borderRadius: BorderRadius.circular(26),
+        child: Icon(Icons.groups_rounded, size: 44, color: Colors.white),
       ),
     );
   }

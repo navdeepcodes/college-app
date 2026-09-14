@@ -3,6 +3,11 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'club_chat_screen.dart';
 import 'club_admin_dashboard_screen.dart';
+import '../core/app_colors.dart';
+import '../core/haptics.dart';
+import '../core/spacing.dart';
+import '../core/widgets/entrance.dart';
+import '../core/widgets/pressable.dart';
 
 class ClubProfileScreen extends StatelessWidget {
   final String clubId;
@@ -23,12 +28,7 @@ class ClubProfileScreen extends StatelessWidget {
     }
 
     return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
-        backgroundColor: Colors.black,
-        elevation: 0,
-        title: const Text('Club'),
-      ),
+      appBar: AppBar(title: const Text('Club')),
       body: StreamBuilder<List<Map<String, dynamic>>>(
         stream: Supabase.instance.client
             .from('clubs')
@@ -56,19 +56,24 @@ class ClubProfileScreen extends StatelessWidget {
           final photoUrl = club['photo_url'];
 
           return ListView(
-            padding: const EdgeInsets.fromLTRB(18, 14, 18, 36),
+            padding: const EdgeInsets.fromLTRB(AppSpace.lg, AppSpace.md, AppSpace.lg, AppSpace.xxxl),
             children: [
-              _HeroHeader(
-                clubName: clubName,
-                clubDesc: clubDesc,
-                membersCount: membersCount,
-                photoUrl: photoUrl,
+              Entrance(
+                child: _HeroHeader(
+                  clubName: clubName,
+                  clubDesc: clubDesc,
+                  membersCount: membersCount,
+                  photoUrl: photoUrl,
+                ),
               ),
-              const SizedBox(height: 30),
-              _RoleActions(
-                clubId: clubId,
-                clubName: clubName,
-                uid: uid,
+              const SizedBox(height: AppSpace.xxl),
+              Entrance(
+                delay: const Duration(milliseconds: 80),
+                child: _RoleActions(
+                  clubId: clubId,
+                  clubName: clubName,
+                  uid: uid,
+                ),
               ),
             ],
           );
@@ -98,11 +103,11 @@ class _HeroHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(AppSpace.xl),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(28),
+        borderRadius: BorderRadius.circular(AppRadius.xl),
         gradient: const LinearGradient(
-          colors: [Color(0xFF6A3DE8), Color(0xFF3B1E91)],
+          colors: [AppColors.accent, AppColors.accentDeep],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
@@ -111,34 +116,37 @@ class _HeroHeader extends StatelessWidget {
         children: [
           CircleAvatar(
             radius: 46,
-            backgroundColor: Colors.black,
+            backgroundColor: Colors.black26,
             backgroundImage:
                 photoUrl != null ? NetworkImage(photoUrl!) : null,
             child: photoUrl == null
-                ? const Icon(Icons.groups, size: 42, color: Colors.white)
+                ? const Icon(Icons.groups_rounded, size: 42, color: Colors.white)
                 : null,
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: AppSpace.md),
           Text(
             clubName,
+            textAlign: TextAlign.center,
             style: const TextStyle(
-              fontSize: 23,
+              fontSize: 22,
               fontWeight: FontWeight.bold,
               color: Colors.white,
             ),
           ),
-          const SizedBox(height: 6),
-          Text(
-            clubDesc,
-            textAlign: TextAlign.center,
-            style: const TextStyle(color: Colors.white70, fontSize: 13),
-          ),
-          const SizedBox(height: 14),
+          if (clubDesc.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              clubDesc,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white70, fontSize: 13),
+            ),
+          ],
+          const SizedBox(height: AppSpace.md),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
             decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.35),
-              borderRadius: BorderRadius.circular(18),
+              color: Colors.black.withValues(alpha: 0.3),
+              borderRadius: BorderRadius.circular(AppRadius.pill),
             ),
             child: Text(
               '$membersCount members',
@@ -199,10 +207,10 @@ class _RoleActions extends StatelessWidget {
                 clubId: clubId,
                 clubName: clubName,
               ),
-              const SizedBox(height: 18),
+              const SizedBox(height: AppSpace.lg),
               _PrimaryButton(
-                icon: Icons.chat_bubble_outline,
-                text: 'Open Club Chat',
+                icon: Icons.chat_bubble_outline_rounded,
+                text: 'Open club chat',
                 onTap: () {
                   Navigator.push(
                     context,
@@ -220,8 +228,8 @@ class _RoleActions extends StatelessWidget {
         }
 
         return _PrimaryButton(
-          icon: Icons.chat_bubble_outline,
-          text: 'Open Club Chat',
+          icon: Icons.chat_bubble_outline_rounded,
+          text: 'Open club chat',
           onTap: () {
             Navigator.push(
               context,
@@ -281,11 +289,12 @@ class _JoinClubButtonState extends State<_JoinClubButton> {
         });
       }
 
+      AppHaptics.tap();
       messenger.showSnackBar(
         const SnackBar(content: Text('Join request sent')),
       );
     } catch (e) {
-      messenger.showSnackBar(SnackBar(content: Text('Request failed: $e')));
+      messenger.showSnackBar(const SnackBar(content: Text('Request failed. Try again.')));
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -306,15 +315,15 @@ class _JoinClubButtonState extends State<_JoinClubButton> {
 
         if (alreadyPending) {
           return const _PrimaryButton(
-            icon: Icons.hourglass_top,
-            text: 'Request Pending',
+            icon: Icons.hourglass_top_rounded,
+            text: 'Request pending',
             onTap: null,
           );
         }
 
         return _PrimaryButton(
-          icon: Icons.person_add_alt_1,
-          text: _submitting ? 'Sending…' : 'Request to Join Club',
+          icon: Icons.person_add_alt_1_rounded,
+          text: _submitting ? 'Sending…' : 'Request to join club',
           onTap: _submitting ? null : _requestToJoin,
         );
       },
@@ -337,7 +346,7 @@ class _AdminDashboardCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return Pressable(
       onTap: () {
         Navigator.push(
           context,
@@ -350,27 +359,27 @@ class _AdminDashboardCard extends StatelessWidget {
         );
       },
       child: Container(
-        padding: const EdgeInsets.all(18),
+        padding: const EdgeInsets.all(AppSpace.xl),
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(22),
+          borderRadius: BorderRadius.circular(AppRadius.lg),
           gradient: LinearGradient(
             colors: [
-              Colors.purple.withValues(alpha: 0.35),
-              Colors.deepPurple.withValues(alpha: 0.2),
+              AppColors.accent.withValues(alpha: 0.35),
+              AppColors.accentDeep.withValues(alpha: 0.25),
             ],
           ),
-          border: Border.all(color: Colors.purpleAccent),
+          border: Border.all(color: AppColors.accentBright.withValues(alpha: 0.5)),
         ),
         child: const Row(
           children: [
-            Icon(Icons.dashboard, color: Colors.purpleAccent, size: 26),
+            Icon(Icons.dashboard_rounded, color: AppColors.accentBright, size: 26),
             SizedBox(width: 14),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Admin Dashboard',
+                    'Admin dashboard',
                     style: TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.bold,
@@ -379,13 +388,13 @@ class _AdminDashboardCard extends StatelessWidget {
                   ),
                   SizedBox(height: 4),
                   Text(
-                    'Members • Requests • Events',
-                    style: TextStyle(color: Colors.white70, fontSize: 12),
+                    'Members · Requests · Events',
+                    style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
                   ),
                 ],
               ),
             ),
-            Icon(Icons.chevron_right, color: Colors.white38),
+            Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
           ],
         ),
       ),
@@ -410,14 +419,14 @@ class _PrimaryButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return Pressable(
       onTap: onTap,
       child: Container(
         height: 54,
-        margin: const EdgeInsets.only(bottom: 12),
+        margin: const EdgeInsets.only(bottom: AppSpace.md),
         decoration: BoxDecoration(
-          color: onTap == null ? Colors.deepPurple.withValues(alpha: 0.5) : Colors.deepPurple,
-          borderRadius: BorderRadius.circular(28),
+          color: onTap == null ? AppColors.accent.withValues(alpha: 0.4) : AppColors.accent,
+          borderRadius: BorderRadius.circular(AppRadius.pill),
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,

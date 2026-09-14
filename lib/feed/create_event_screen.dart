@@ -6,6 +6,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../services/storage_service.dart';
 import '../auth/services/college_detector.dart';
+import '../core/app_colors.dart';
+import '../core/spacing.dart';
 
 class CreateEventScreen extends StatefulWidget {
   const CreateEventScreen({super.key});
@@ -154,25 +156,27 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
         ],
       ),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(AppSpace.lg),
         children: [
           _field(_titleController, 'Event name'),
-          const SizedBox(height: 12),
+          const SizedBox(height: AppSpace.md),
           _field(_descController, 'Event description', maxLines: 4),
-          const SizedBox(height: 16),
+          const SizedBox(height: AppSpace.lg),
           Row(
             children: [
               Expanded(
                 child: _dateButton(
+                  icon: Icons.event_outlined,
                   label: _startDate == null
                       ? 'Start date'
                       : _startDate!.toString().split(' ')[0],
                   onTap: () => _pickDate(start: true),
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: AppSpace.md),
               Expanded(
                 child: _dateButton(
+                  icon: Icons.event_available_outlined,
                   label: _endDate == null
                       ? 'End date'
                       : _endDate!.toString().split(' ')[0],
@@ -181,27 +185,24 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: AppSpace.xl),
           OutlinedButton.icon(
             onPressed: _pickImages,
-            icon: const Icon(Icons.photo),
+            icon: const Icon(Icons.photo_outlined, size: 18),
             label: const Text('Add event photos'),
           ),
           if (_mediaFiles.isNotEmpty)
             Padding(
-              padding: const EdgeInsets.only(top: 12),
+              padding: const EdgeInsets.only(top: AppSpace.md),
               child: Text(
                 '${_mediaFiles.length} photo(s) added',
-                style: const TextStyle(color: Colors.white70),
+                style: const TextStyle(color: AppColors.textSecondary),
               ),
             ),
-          const SizedBox(height: 24),
+          const SizedBox(height: AppSpace.xxl),
           const Text(
             'Registration & payment handled on:\n$_websiteBase/{eventId}',
-            style: TextStyle(
-              fontSize: 12,
-              color: Colors.white54,
-            ),
+            style: TextStyle(fontSize: 12, color: AppColors.textMuted),
           ),
         ],
       ),
@@ -212,22 +213,19 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     return TextField(
       controller: c,
       maxLines: maxLines,
-      decoration: InputDecoration(
-        hintText: hint,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
-      ),
+      decoration: InputDecoration(hintText: hint),
     );
   }
 
   Widget _dateButton({
+    required IconData icon,
     required String label,
     required VoidCallback onTap,
   }) {
-    return OutlinedButton(
+    return OutlinedButton.icon(
       onPressed: onTap,
-      child: Text(label),
+      icon: Icon(icon, size: 17),
+      label: Text(label, overflow: TextOverflow.ellipsis),
     );
   }
 }
