@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../services/storage_service.dart';
 import '../notifications/notifications_screen.dart';
@@ -14,7 +13,7 @@ import 'events_screen.dart';
 import '../auth/services/college_detector.dart';
 
 // Moments is restored in the codebase (screens, storage upload path,
-// Firestore rules/indexes) but intentionally not user-reachable: it's not
+// Postgres schema/RLS) but intentionally not user-reachable: it's not
 // part of the current live product. Flip this to re-enable the entry point.
 const bool kMomentsEnabled = false;
 
@@ -33,9 +32,7 @@ class _FeedScreenState extends State<FeedScreen> {
   @override
   void initState() {
     super.initState();
-    _uid = FirebaseAuth.instance.currentUser!.uid;
-
-    // ✅ CORRECT: no Supabase.instance here
+    _uid = Supabase.instance.client.auth.currentUser!.id;
     _storage = StorageService();
   }
 
@@ -116,38 +113,41 @@ class _MergedFeed extends StatelessWidget {
   });
 
   Future<void> _toggleLike(String postId) async {
-    final postRef =
-    FirebaseFirestore.instance.collection('posts').doc(postId);
-    final likeRef = postRef.collection('likes').doc(uid);
+    final supabase = Supabase.instance.client;
 
-    await FirebaseFirestore.instance.runTransaction((txn) async {
-      final snap = await txn.get(likeRef);
+    final existing = await supabase
+        .from('post_likes')
+        .select('id')
+        .eq('post_id', postId)
+        .eq('user_id', uid)
+        .limit(1);
 
-      if (snap.exists) {
-        txn.delete(likeRef);
-        txn.update(postRef, {
-          'likesCount': FieldValue.increment(-1),
-        });
-      } else {
-        txn.set(likeRef, {
-          'userId': uid,
-          'createdAt': FieldValue.serverTimestamp(),
-        });
-        txn.update(postRef, {
-          'likesCount': FieldValue.increment(1),
-        });
-      }
-    });
+    if (existing.isNotEmpty) {
+      await supabase
+          .from('post_likes')
+          .delete()
+          .eq('post_id', postId)
+          .eq('user_id', uid);
+    } else {
+      await supabase.from('post_likes').insert({
+        'post_id': postId,
+        'user_id': uid,
+      });
+    }
+    // likes_count is trigger-maintained (bump_post_likes_count) — no
+    // client-side increment needed or possible.
   }
 
   @override
   Widget build(BuildContext context) {
+    final supabase = Supabase.instance.client;
+
     // The campus feed is college-isolated: resolve the current user's
-    // canonical collegeId (users doc) and only stream that college's posts.
-    // (Client-side filtering alone is not security; the rules enforce the
-    // same binding — see firestore.rules posts block.)
-    return FutureBuilder<DocumentSnapshot>(
-      future: FirebaseFirestore.instance.collection('users').doc(uid).get(),
+    // canonical collegeId and only stream that college's posts.
+    // (Client-side filtering alone is not security; RLS enforces the same
+    // binding — see supabase/migrations/20260914000002_rls_policies.sql.)
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: supabase.from('profiles').select().eq('id', uid).limit(1),
       builder: (context, userSnap) {
         if (userSnap.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
@@ -162,8 +162,8 @@ class _MergedFeed extends StatelessWidget {
           );
         }
 
-        final collegeId = userSnap.hasData
-            ? canonicalCollegeId(userSnap.data!.data() as Map<String, dynamic>?)
+        final collegeId = (userSnap.data?.isNotEmpty ?? false)
+            ? canonicalCollegeId(userSnap.data!.first)
             : '';
         if (collegeId.isEmpty) {
           return const Center(
@@ -174,13 +174,13 @@ class _MergedFeed extends StatelessWidget {
           );
         }
 
-        return StreamBuilder<QuerySnapshot>(
-          stream: FirebaseFirestore.instance
-              .collection('posts')
-              .where('collegeId', isEqualTo: collegeId)
-              .orderBy('createdAt', descending: true)
-              .limit(50)
-              .snapshots(),
+        return StreamBuilder<List<Map<String, dynamic>>>(
+          stream: supabase
+              .from('posts')
+              .stream(primaryKey: ['id'])
+              .eq('college_id', collegeId)
+              .order('created_at', ascending: false)
+              .limit(50),
           builder: (context, snap) {
             if (snap.hasError) {
               return const Center(
@@ -195,128 +195,119 @@ class _MergedFeed extends StatelessWidget {
               return const Center(child: CircularProgressIndicator());
             }
 
-        final docs = snap.data!.docs;
-        if (docs.isEmpty) {
-          return const Center(
-            child: Text(
-              'No posts yet',
-              style: TextStyle(color: Colors.white70),
-            ),
-          );
-        }
-
-        return ListView.builder(
-          padding: const EdgeInsets.only(bottom: 140),
-          itemCount: docs.length,
-          itemBuilder: (context, i) {
-            final postDoc = docs[i];
-            final data = postDoc.data() as Map<String, dynamic>;
-
-            final mediaPath = data['mediaPath'];
-            final userId = data['userId'];
-            if (mediaPath == null || userId == null) {
-              return const SizedBox.shrink();
+            final docs = snap.data!;
+            if (docs.isEmpty) {
+              return const Center(
+                child: Text(
+                  'No posts yet',
+                  style: TextStyle(color: Colors.white70),
+                ),
+              );
             }
 
-            final imageUrl = storage.getPublicPostUrl(mediaPath);
-            final likesCount = (data['likesCount'] ?? 0) as int;
-            final commentsCount =
-            (data['commentsCount'] ?? 0) as int;
+            return ListView.builder(
+              padding: const EdgeInsets.only(bottom: 140),
+              itemCount: docs.length,
+              itemBuilder: (context, i) {
+                final data = docs[i];
+                final postId = data['id'] as String;
 
-            return StreamBuilder<DocumentSnapshot>(
-              stream: FirebaseFirestore.instance
-                  .collection('posts')
-                  .doc(postDoc.id)
-                  .collection('likes')
-                  .doc(uid)
-                  .snapshots(),
-              builder: (context, likeSnap) {
-                final isLiked =
-                    likeSnap.hasData && likeSnap.data!.exists;
+                final mediaPath = data['media_path'];
+                final userId = data['user_id'];
+                if (mediaPath == null || userId == null) {
+                  return const SizedBox.shrink();
+                }
 
-                return Card(
-                  margin: const EdgeInsets.symmetric(
-                      horizontal: 14, vertical: 10),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      PostUserHeader(
-                        userId: userId,
-                        onTap: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) =>
-                                ProfileScreen(userId: userId),
-                          ),
-                        ),
+                final imageUrl = storage.getPublicPostUrl(mediaPath);
+                final likesCount = (data['likes_count'] ?? 0) as int;
+                final commentsCount = (data['comments_count'] ?? 0) as int;
+
+                return StreamBuilder<List<Map<String, dynamic>>>(
+                  stream: supabase
+                      .from('post_likes')
+                      .stream(primaryKey: ['id'])
+                      .eq('post_id', postId),
+                  builder: (context, likeSnap) {
+                    final isLiked = (likeSnap.data ?? [])
+                        .any((l) => l['user_id'] == uid);
+
+                    return Card(
+                      margin: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 10),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20),
                       ),
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(18),
-                        child: Image.network(
-                          imageUrl,
-                          fit: BoxFit.cover,
-                          width: double.infinity,
-                        ),
-                      ),
-                      if (data['caption'] is String &&
-                          (data['caption'] as String).isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(
-                              14, 10, 14, 0),
-                          child: Text(
-                            data['caption'] as String,
-                            style: Theme.of(context)
-                                .textTheme
-                                .bodyMedium,
-                          ),
-                        ),
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(
-                            14, 10, 14, 14),
-                        child: Row(
-                          children: [
-                            _ActionButton(
-                              icon: isLiked
-                                  ? Icons.favorite
-                                  : Icons.favorite_border,
-                              color: isLiked
-                                  ? Colors.redAccent
-                                  : Colors.white70,
-                              count: likesCount,
-                              onTap: () =>
-                                  _toggleLike(postDoc.id),
-                            ),
-                            const SizedBox(width: 18),
-                            _ActionButton(
-                              icon: Icons.chat_bubble_outline,
-                              color: Colors.white70,
-                              count: commentsCount,
-                              onTap: () => Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => CommentsScreen(
-                                    postId: postDoc.id,
-                                  ),
-                                ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          PostUserHeader(
+                            userId: userId,
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => ProfileScreen(userId: userId),
                               ),
                             ),
-                          ],
-                        ),
+                          ),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(18),
+                            child: Image.network(
+                              imageUrl,
+                              fit: BoxFit.cover,
+                              width: double.infinity,
+                            ),
+                          ),
+                          if (data['text'] is String &&
+                              (data['text'] as String).isNotEmpty)
+                            Padding(
+                              padding:
+                                  const EdgeInsets.fromLTRB(14, 10, 14, 0),
+                              child: Text(
+                                data['text'] as String,
+                                style: Theme.of(context).textTheme.bodyMedium,
+                              ),
+                            ),
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
+                            child: Row(
+                              children: [
+                                _ActionButton(
+                                  icon: isLiked
+                                      ? Icons.favorite
+                                      : Icons.favorite_border,
+                                  color: isLiked
+                                      ? Colors.redAccent
+                                      : Colors.white70,
+                                  count: likesCount,
+                                  onTap: () => _toggleLike(postId),
+                                ),
+                                const SizedBox(width: 18),
+                                _ActionButton(
+                                  icon: Icons.chat_bubble_outline,
+                                  color: Colors.white70,
+                                  count: commentsCount,
+                                  onTap: () => Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) =>
+                                          CommentsScreen(postId: postId),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
+                    );
+                  },
                 );
               },
             );
           },
         );
       },
-          );
-        },
-      );
+    );
   }
 }
 

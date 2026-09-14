@@ -1,8 +1,6 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -17,8 +15,6 @@ class ProfileSetupPage extends StatefulWidget {
 }
 
 class _ProfileSetupPageState extends State<ProfileSetupPage> {
-  final _auth = FirebaseAuth.instance;
-  final _firestore = FirebaseFirestore.instance;
   SupabaseClient get _supabase => Supabase.instance.client;
 
   final _nameController = TextEditingController();
@@ -45,7 +41,6 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
     'Other',
   ];
 
-  // ✅ ADD COLLEGE OPTIONS (minimal, logic-safe)
   final _colleges = const [
     'Nitte Meenakshi Institute of Technology',
     'Other',
@@ -58,13 +53,13 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
   }
 
   Future<void> _loadUserData() async {
-    final user = _auth.currentUser;
+    final user = _supabase.auth.currentUser;
     if (user == null) return;
 
-    final doc = await _firestore.collection('users').doc(user.uid).get();
+    final rows = await _supabase.from('profiles').select().eq('id', user.id).limit(1);
     if (!mounted) return;
 
-    final data = doc.data();
+    final data = rows.isNotEmpty ? rows.first : null;
     setState(() {
       _nameController.text = data?['name'] ?? '';
       _nicknameController.text = data?['nickname'] ?? '';
@@ -83,7 +78,7 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
   }
 
   Future<void> _submit() async {
-    final user = _auth.currentUser;
+    final user = _supabase.auth.currentUser;
     if (user == null) return;
 
     if (_nameController.text.trim().isEmpty ||
@@ -101,62 +96,49 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
     try {
       String? photoUrl;
 
-      // ✅ upload ONLY if image selected
       if (_image != null) {
-        final path = 'profiles/${user.uid}.jpg';
-        await _supabase.storage
-            .from('profile_photos')
-            .upload(
-          path,
-          _image!,
-          fileOptions: const FileOptions(upsert: true),
-        );
+        final path = 'profiles/${user.id}.jpg';
+        await _supabase.storage.from('profile_photos').upload(
+              path,
+              _image!,
+              fileOptions: const FileOptions(upsert: true),
+            );
 
-        photoUrl = _supabase.storage
-            .from('profile_photos')
-            .getPublicUrl(path);
+        photoUrl = _supabase.storage.from('profile_photos').getPublicUrl(path);
       }
 
-      final userRef = _firestore.collection('users').doc(user.uid);
-
-      final snap = await userRef.get();
-      // Heal path for pre-bootstrap docs: mint anonId once if it's missing.
-      // (New users get it stamped at user-doc creation; the rules permit the
-      // first mint and lock the value afterwards.)
-      if (snap.data()?['anonId'] == null) {
-        await userRef.set(
-          {'anonId': anonDisplayId()},
-          SetOptions(merge: true),
-        );
+      // Heal path for pre-bootstrap rows: mint anon_id once if missing.
+      // (New users get it stamped at profile-row creation; the
+      // enforce_profile_immutability trigger permits the first mint and
+      // locks the value afterwards — see supabase/migrations/....sql.)
+      final existing = await _supabase.from('profiles').select('anon_id').eq('id', user.id).limit(1);
+      if (existing.isNotEmpty && existing.first['anon_id'] == null) {
+        await _supabase.from('profiles').update({'anon_id': anonDisplayId()}).eq('id', user.id);
       }
 
-      // ✅ build update map safely
-      final updateData = {
-        'uid': user.uid,
+      final updateData = <String, dynamic>{
         'name': _nameController.text.trim(),
         'nickname': _nicknameController.text.trim(),
         'bio': _bioController.text.trim(),
         'college': _college,
-        'collegeId': collegeIdForEmail(user.email, fallbackCollege: _college),
+        'college_id': collegeIdForEmail(user.email, fallbackCollege: _college),
         'year': _year,
         'branch': _branch,
-        'profileCompleted': true,
-        'updatedAt': FieldValue.serverTimestamp(),
+        'profile_completed': true,
       };
 
-      // ✅ do NOT overwrite existing photoUrl
       if (photoUrl != null) {
-        updateData['photoUrl'] = photoUrl;
+        updateData['photo_url'] = photoUrl;
       }
 
-      await userRef.set(updateData, SetOptions(merge: true));
+      await _supabase.from('profiles').update(updateData).eq('id', user.id);
 
       if (!mounted) return;
 
       Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(builder: (_) => const BottomNavShell()),
-            (_) => false,
+        (_) => false,
       );
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -182,11 +164,9 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
                   CircleAvatar(
                     radius: 58,
                     backgroundColor: Colors.white.withValues(alpha: 0.08),
-                    backgroundImage:
-                    _image != null ? FileImage(_image!) : null,
+                    backgroundImage: _image != null ? FileImage(_image!) : null,
                     child: _image == null
-                        ? const Icon(Icons.camera_alt,
-                        size: 30, color: Colors.white70)
+                        ? const Icon(Icons.camera_alt, size: 30, color: Colors.white70)
                         : null,
                   ),
                   Container(
@@ -201,43 +181,31 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
               ),
             ),
           ),
-
           const SizedBox(height: 32),
-
           _editable(_nameController, 'Full Name'),
           const SizedBox(height: 14),
           _editable(_nicknameController, 'Nickname'),
           const SizedBox(height: 14),
           _editable(_bioController, 'Bio', maxLines: 2),
-
           const SizedBox(height: 20),
-
-          _dropdown('College', _college, _colleges,
-                  (v) => setState(() => _college = v)),
+          _dropdown('College', _college, _colleges, (v) => setState(() => _college = v)),
           const SizedBox(height: 14),
-          _dropdown('Year', _year, _years,
-                  (v) => setState(() => _year = v)),
+          _dropdown('Year', _year, _years, (v) => setState(() => _year = v)),
           const SizedBox(height: 14),
-          _dropdown('Branch', _branch, _branches,
-                  (v) => setState(() => _branch = v)),
-
+          _dropdown('Branch', _branch, _branches, (v) => setState(() => _branch = v)),
           const SizedBox(height: 36),
-
           SizedBox(
             height: 50,
             child: ElevatedButton(
               onPressed: _loading ? null : _submit,
               child: _loading
                   ? const SizedBox(
-                width: 22,
-                height: 22,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-                  : const Text(
-                'Continue',
-                style:
-                TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-              ),
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Continue',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
             ),
           ),
         ],
@@ -245,40 +213,31 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
     );
   }
 
-  Widget _editable(
-      TextEditingController c,
-      String label, {
-        int maxLines = 1,
-      }) {
+  Widget _editable(TextEditingController c, String label, {int maxLines = 1}) {
     return TextField(
       controller: c,
       maxLines: maxLines,
       decoration: InputDecoration(
         labelText: label,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-        ),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
       ),
     );
   }
 
   Widget _dropdown(
-      String label,
-      String? value,
-      List<String> items,
-      ValueChanged<String?> onChanged,
-      ) {
+    String label,
+    String? value,
+    List<String> items,
+    ValueChanged<String?> onChanged,
+  ) {
     return DropdownButtonFormField<String>(
       initialValue: value,
       isExpanded: true,
-      items:
-      items.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
+      items: items.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
       onChanged: onChanged,
       decoration: InputDecoration(
         labelText: label,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-        ),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
       ),
     );
   }

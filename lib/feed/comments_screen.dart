@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../moderation/text_filter.dart';
 
@@ -21,7 +20,6 @@ class _CommentsScreenState extends State<CommentsScreen> {
     final text = _controller.text.trim();
     if (text.isEmpty || _sending) return;
 
-    // Moderation: block comments the content filter rejects (anon-chat policy).
     final filterResult = TextFilter.filter(text);
     if (!filterResult.isAllowed) {
       if (mounted) {
@@ -35,23 +33,17 @@ class _CommentsScreenState extends State<CommentsScreen> {
     setState(() => _sending = true);
 
     try {
-      final uid = FirebaseAuth.instance.currentUser!.uid;
-      final postRef =
-      FirebaseFirestore.instance.collection('posts').doc(widget.postId);
-      final commentRef = postRef.collection('comments').doc();
+      final supabase = Supabase.instance.client;
+      final uid = supabase.auth.currentUser!.id;
 
-      // Batched so a dropped connection between the two writes can't leave
-      // commentsCount permanently undercounting the actual comment docs.
-      final batch = FirebaseFirestore.instance.batch();
-      batch.set(commentRef, {
-        'userId': uid,
+      // comments_count is trigger-maintained (bump_post_comments_count) --
+      // a single insert here, no batch/increment needed the way the
+      // Firestore version had to pair a write with a counter update.
+      await supabase.from('comments').insert({
+        'post_id': widget.postId,
+        'user_id': uid,
         'text': filterResult.cleanedText,
-        'createdAt': FieldValue.serverTimestamp(),
       });
-      batch.update(postRef, {
-        'commentsCount': FieldValue.increment(1),
-      });
-      await batch.commit();
 
       _controller.clear();
     } catch (_) {
@@ -71,6 +63,7 @@ class _CommentsScreenState extends State<CommentsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final supabase = Supabase.instance.client;
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
@@ -80,16 +73,14 @@ class _CommentsScreenState extends State<CommentsScreen> {
       ),
       body: Column(
         children: [
-          /// COMMENTS LIST
           Expanded(
-            child: StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance
-                  .collection('posts')
-                  .doc(widget.postId)
-                  .collection('comments')
-                  .orderBy('createdAt', descending: true)
-                  .limit(200)
-                  .snapshots(),
+            child: StreamBuilder<List<Map<String, dynamic>>>(
+              stream: supabase
+                  .from('comments')
+                  .stream(primaryKey: ['id'])
+                  .eq('post_id', widget.postId)
+                  .order('created_at', ascending: false)
+                  .limit(200),
               builder: (context, snap) {
                 if (snap.hasError) {
                   return const Center(
@@ -106,7 +97,7 @@ class _CommentsScreenState extends State<CommentsScreen> {
                   );
                 }
 
-                if (snap.data!.docs.isEmpty) {
+                if (snap.data!.isEmpty) {
                   return const Center(
                     child: Text(
                       'No comments yet',
@@ -118,12 +109,11 @@ class _CommentsScreenState extends State<CommentsScreen> {
                 return ListView.builder(
                   reverse: true,
                   padding: const EdgeInsets.only(bottom: 12),
-                  itemCount: snap.data!.docs.length,
+                  itemCount: snap.data!.length,
                   itemBuilder: (context, index) {
-                    final data = snap.data!.docs[index].data()
-                    as Map<String, dynamic>;
+                    final data = snap.data![index];
                     return _CommentTile(
-                      userId: data['userId'],
+                      userId: data['user_id'],
                       text: data['text'],
                     );
                   },
@@ -131,8 +121,6 @@ class _CommentsScreenState extends State<CommentsScreen> {
               },
             ),
           ),
-
-          /// INPUT BAR
           SafeArea(
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -151,7 +139,7 @@ class _CommentsScreenState extends State<CommentsScreen> {
                       decoration: InputDecoration(
                         hintText: 'Add a comment...',
                         hintStyle:
-                        TextStyle(color: Colors.white.withValues(alpha: 0.5)),
+                            TextStyle(color: Colors.white.withValues(alpha: 0.5)),
                         filled: true,
                         fillColor: Colors.white.withValues(alpha: 0.06),
                         border: OutlineInputBorder(
@@ -169,10 +157,10 @@ class _CommentsScreenState extends State<CommentsScreen> {
                   IconButton(
                     icon: _sending
                         ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
                         : const Icon(Icons.send, color: Colors.deepPurple),
                     onPressed: _sending ? null : _sendComment,
                   ),
@@ -186,8 +174,6 @@ class _CommentsScreenState extends State<CommentsScreen> {
   }
 }
 
-/// COMMENT TILE
-
 class _CommentTile extends StatelessWidget {
   final String userId;
   final String text;
@@ -199,25 +185,26 @@ class _CommentTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<DocumentSnapshot>(
-      future: FirebaseFirestore.instance
-          .collection('users')
-          .doc(userId)
-          .get(),
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: Supabase.instance.client
+          .from('profiles')
+          .select()
+          .eq('id', userId)
+          .limit(1),
       builder: (context, snap) {
-        if (!snap.hasData || !snap.data!.exists) {
+        if (!snap.hasData || snap.data!.isEmpty) {
           return const SizedBox.shrink();
         }
 
-        final user = snap.data!.data() as Map<String, dynamic>;
+        final user = snap.data!.first;
         final name = user['name'] ?? 'User';
-        final photoUrl = user['photoUrl'];
+        final photoUrl = user['photo_url'];
 
         return ListTile(
           leading: CircleAvatar(
             backgroundColor: Colors.white24,
             backgroundImage:
-            photoUrl != null ? NetworkImage(photoUrl) : null,
+                photoUrl != null ? NetworkImage(photoUrl) : null,
             child: photoUrl == null
                 ? const Icon(Icons.person, size: 18)
                 : null,

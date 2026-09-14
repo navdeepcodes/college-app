@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class PostUserHeader extends StatelessWidget {
   final String userId;
@@ -15,31 +15,31 @@ class PostUserHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<DocumentSnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('users')
-          .doc(userId)
-          .snapshots(),
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: Supabase.instance.client
+          .from('profiles')
+          .stream(primaryKey: ['id'])
+          .eq('id', userId)
+          .limit(1),
       builder: (context, snap) {
-        if (!snap.hasData || !snap.data!.exists) {
+        if (!snap.hasData || snap.data!.isEmpty) {
           return const SizedBox(height: 48);
         }
 
-        final user = snap.data!.data() as Map<String, dynamic>;
+        final user = snap.data!.first;
         final name = user['name'] ?? 'User';
-        final photoUrl = user['photoUrl'];
+        final photoUrl = user['photo_url'];
 
         return InkWell(
           onTap: onTap,
           child: Padding(
-            padding:
-            const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             child: Row(
               children: [
                 CircleAvatar(
                   radius: 18,
                   backgroundImage:
-                  photoUrl != null ? NetworkImage(photoUrl) : null,
+                      photoUrl != null ? NetworkImage(photoUrl) : null,
                   child: photoUrl == null
                       ? const Icon(Icons.person, size: 18)
                       : null,

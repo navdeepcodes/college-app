@@ -1,7 +1,6 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../feed/feed_screen.dart';
 import '../search/search_screen.dart';
@@ -21,7 +20,7 @@ class _BottomNavShellState extends State<BottomNavShell> {
 
   @override
   Widget build(BuildContext context) {
-    final user = FirebaseAuth.instance.currentUser;
+    final user = Supabase.instance.client.auth.currentUser;
 
     if (user == null) {
       return const Scaffold(
@@ -32,7 +31,7 @@ class _BottomNavShellState extends State<BottomNavShell> {
       );
     }
 
-    final uid = user.uid;
+    final uid = user.id;
 
     final screens = [
       const FeedScreen(),
@@ -140,17 +139,17 @@ class _ProfileNavIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<DocumentSnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('users')
-          .doc(uid)
-          .snapshots(),
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: Supabase.instance.client
+          .from('profiles')
+          .stream(primaryKey: ['id'])
+          .eq('id', uid)
+          .limit(1),
       builder: (context, snap) {
         String? photoUrl;
 
-        if (snap.hasData && snap.data!.exists) {
-          final data = snap.data!.data() as Map<String, dynamic>;
-          photoUrl = data['photoUrl'];
+        if (snap.hasData && snap.data!.isNotEmpty) {
+          photoUrl = snap.data!.first['photo_url'];
         }
 
         return CircleAvatar(

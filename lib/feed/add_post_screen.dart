@@ -2,8 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../services/storage_service.dart';
 import '../auth/services/college_detector.dart';
@@ -21,12 +20,11 @@ class _AddPostScreenState extends State<AddPostScreen> {
   File? _image;
   bool _loading = false;
 
-  // ✅ CORRECT — no arguments
   final StorageService _storageService = StorageService();
 
   Future<void> _pickImage() async {
     final picked =
-    await ImagePicker().pickImage(source: ImageSource.gallery);
+        await ImagePicker().pickImage(source: ImageSource.gallery);
     if (picked != null) {
       setState(() => _image = File(picked.path));
     }
@@ -40,8 +38,6 @@ class _AddPostScreenState extends State<AddPostScreen> {
       return;
     }
 
-    // Moderation: block captions the content filter rejects (same policy as
-    // the anonymous chat) BEFORE any upload or Firestore write.
     final caption = _captionController.text.trim();
     final captionFilter = TextFilter.filter(caption);
     if (!captionFilter.isAllowed) {
@@ -54,18 +50,14 @@ class _AddPostScreenState extends State<AddPostScreen> {
     setState(() => _loading = true);
 
     try {
-      final uid = FirebaseAuth.instance.currentUser!.uid;
-      final postRef =
-      FirebaseFirestore.instance.collection('posts').doc();
+      final supabase = Supabase.instance.client;
+      final uid = supabase.auth.currentUser!.id;
 
-      // College identity for the isolated campus feed: the post carries the
-      // owner's canonical collegeId, and the Firestore rule requires it to
-      // match users/{uid}.collegeId on write and gates reads on it.
-      final userSnap = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(uid)
-          .get();
-      final collegeId = canonicalCollegeId(userSnap.data());
+      final profileRows =
+          await supabase.from('profiles').select().eq('id', uid).limit(1);
+      final collegeId = profileRows.isNotEmpty
+          ? canonicalCollegeId(profileRows.first)
+          : '';
       if (collegeId.isEmpty) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -79,25 +71,15 @@ class _AddPostScreenState extends State<AddPostScreen> {
 
       final mediaPath = await _storageService.uploadPostMedia(
         userId: uid,
-        postId: postRef.id,
+        postId: DateTime.now().millisecondsSinceEpoch.toString(),
         file: _image!,
       );
 
-      await postRef.set({
-        'userId': uid,
-        'collegeId': collegeId,
-        'caption': captionFilter.cleanedText,
-        'mediaPath': mediaPath,
-        'createdAt': FieldValue.serverTimestamp(),
-        'likesCount': 0,
-        'commentsCount': 0,
-      });
-
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(uid)
-          .update({
-        'postsCount': FieldValue.increment(1),
+      await supabase.from('posts').insert({
+        'user_id': uid,
+        'college_id': collegeId,
+        'text': captionFilter.cleanedText,
+        'media_path': mediaPath,
       });
 
       if (!mounted) return;
@@ -123,10 +105,10 @@ class _AddPostScreenState extends State<AddPostScreen> {
             onPressed: _loading ? null : _post,
             child: _loading
                 ? const SizedBox(
-              width: 18,
-              height: 18,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            )
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
                 : const Text('Post'),
           ),
         ],
@@ -144,23 +126,22 @@ class _AddPostScreenState extends State<AddPostScreen> {
               ),
               child: _image != null
                   ? ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: Image.file(
-                  _image!,
-                  fit: BoxFit.cover,
-                  width: double.infinity,
-                ),
-              )
+                      borderRadius: BorderRadius.circular(12),
+                      child: Image.file(
+                        _image!,
+                        fit: BoxFit.cover,
+                        width: double.infinity,
+                      ),
+                    )
                   : const Center(
-                child: Icon(Icons.add_a_photo, size: 40),
-              ),
+                      child: Icon(Icons.add_a_photo, size: 40),
+                    ),
             ),
           ),
           const SizedBox(height: 16),
           TextField(
             controller: _captionController,
-            decoration:
-            const InputDecoration(hintText: 'Write a caption'),
+            decoration: const InputDecoration(hintText: 'Write a caption'),
             maxLines: null,
           ),
         ],

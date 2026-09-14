@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../auth/screens/welcome_screen.dart';
 import '../auth/screens/profile_setup_page.dart';
@@ -21,19 +20,21 @@ class AuthGate extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<User?>(
-      stream: FirebaseAuth.instance.authStateChanges(),
+    return StreamBuilder<AuthState>(
+      stream: Supabase.instance.client.auth.onAuthStateChange,
+      initialData: AuthState(
+        AuthChangeEvent.initialSession,
+        Supabase.instance.client.auth.currentSession,
+      ),
       builder: (context, snap) {
-        if (snap.connectionState == ConnectionState.waiting) {
-          return const _Loading();
-        }
+        final session = snap.data?.session ?? Supabase.instance.client.auth.currentSession;
 
-        // 1️⃣ No user → Welcome
-        if (!snap.hasData) {
+        // 1️⃣ No session → Welcome
+        if (session == null) {
           return const WelcomeScreen();
         }
 
-        final user = snap.data!;
+        final user = session.user;
         final email = user.email ?? '';
 
         // 2️⃣ College email guard (SAFE)
@@ -41,10 +42,11 @@ class AuthGate extends StatelessWidget {
           return _ForceSignOut();
         }
 
-        // 3️⃣ User exists → Bootstrap
+        // 3️⃣ Session exists → Bootstrap
         return _UserBootstrap(
-          key: ValueKey(user.uid),
-          user: user,
+          key: ValueKey(user.id),
+          userId: user.id,
+          email: email,
         );
       },
     );
@@ -68,7 +70,7 @@ class _ForceSignOutState extends State<_ForceSignOut> {
   }
 
   Future<void> _signOut() async {
-    await FirebaseAuth.instance.signOut();
+    await Supabase.instance.client.auth.signOut();
   }
 
   @override
@@ -82,8 +84,9 @@ class _ForceSignOutState extends State<_ForceSignOut> {
    ========================================================= */
 
 class _UserBootstrap extends StatefulWidget {
-  final User user;
-  const _UserBootstrap({super.key, required this.user});
+  final String userId;
+  final String email;
+  const _UserBootstrap({super.key, required this.userId, required this.email});
 
   @override
   State<_UserBootstrap> createState() => _UserBootstrapState();
@@ -103,35 +106,43 @@ class _UserBootstrapState extends State<_UserBootstrap> {
     setState(() => _failed = false);
 
     try {
-      final ref =
-      FirebaseFirestore.instance.collection('users').doc(widget.user.uid);
+      final client = Supabase.instance.client;
 
-      final snap = await ref.get();
+      // A missing row reads back as an empty result, not an error — see
+      // docs/supabase-schema.md for why this bug class (the one that broke
+      // every new Firestore signup, Phase 20 of the Firebase hardening
+      // work) cannot recur here: no special-casing needed, unlike
+      // auth_gate.dart's old try/get/catch dance.
+      final rows = await client
+          .from('profiles')
+          .select()
+          .eq('id', widget.userId)
+          .limit(1);
 
-      if (!snap.exists) {
-        // Bootstrap doc must satisfy the users.create rule: collegeId must
-        // equal collegeIdFromEmail(email). Profile flows then refine the rest
-        // (name/photo/college label). anonId is minted here ONCE so anon chat
-        // works for every user, not just signup-screen users.
-        await ref.set({
-          'uid': widget.user.uid,
-          'email': widget.user.email,
-          'collegeId': collegeIdForEmail(widget.user.email),
-          'anonId': anonDisplayId(),
-          'profileCompleted': false,
-          'createdAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
+      if (rows.isEmpty) {
+        // Bootstrap row must satisfy profiles_insert (id = auth.uid()) and
+        // the enforce_college_id_on_insert trigger (collegeId must equal
+        // collegeIdFromEmail(email)). anonId is minted here ONCE so anon
+        // chat works for every user, not just signup-screen users — same
+        // contract as the Firestore version.
+        await client.from('profiles').insert({
+          'id': widget.userId,
+          'email': widget.email,
+          'college_id': collegeIdForEmail(widget.email),
+          'anon_id': anonDisplayId(),
+          'profile_completed': false,
+        });
 
         if (!mounted) return;
         setState(() => _profileCompleted = false);
         return;
       }
 
-      final data = snap.data();
+      final data = rows.first;
       if (!mounted) return;
 
       setState(() {
-        _profileCompleted = data?['profileCompleted'] == true;
+        _profileCompleted = data['profile_completed'] == true;
       });
     } catch (e) {
       debugPrint('Auth bootstrap error: $e');
@@ -139,9 +150,7 @@ class _UserBootstrapState extends State<_UserBootstrap> {
       // A transient network/backend failure here is NOT the same as "this
       // user hasn't completed onboarding yet" — collapsing them used to
       // silently route an existing, fully-onboarded user back into
-      // ProfileSetupPage on any blip (dropped connection, permission hiccup
-      // on cold start). Show a retry screen instead so the distinction is
-      // visible and recoverable.
+      // ProfileSetupPage on any blip. Show a retry screen instead.
       if (mounted) {
         setState(() => _failed = true);
       }
@@ -191,7 +200,7 @@ class _BootstrapError extends StatelessWidget {
                 child: const Text('Retry'),
               ),
               TextButton(
-                onPressed: () => FirebaseAuth.instance.signOut(),
+                onPressed: () => Supabase.instance.client.auth.signOut(),
                 child: const Text(
                   'Sign out',
                   style: TextStyle(color: Colors.white54),

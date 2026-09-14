@@ -1,28 +1,26 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../auth/services/college_detector.dart';
 
 /// College-scoped events list — the read side of create_event_screen.dart's
-/// write. Before this screen existed, an event could be created but never
-/// viewed again by anyone, including its creator (confirmed via exhaustive
-/// grep: create_event_screen.dart was the only file in lib/ that ever
-/// touched the `events` collection). Mirrors feed_screen.dart's own-college
-/// resolution + query pattern exactly — same data model, same rules
-/// (firestore.rules events block, unchanged), no new fields, no new
-/// collection.
+/// write. Ported from the Firestore version (lib/feed/events_screen.dart,
+/// Phase 25 of the Firebase hardening work) onto the events table built in
+/// supabase/migrations/20260914000001_initial_schema.sql. Same query shape
+/// (college-scoped, ordered by start date), same RLS-enforced isolation —
+/// see docs/supabase-security-model.md.
 class EventsScreen extends StatelessWidget {
   const EventsScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final supabase = Supabase.instance.client;
+    final uid = supabase.auth.currentUser!.id;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Events')),
-      body: FutureBuilder<DocumentSnapshot>(
-        future: FirebaseFirestore.instance.collection('users').doc(uid).get(),
+      body: FutureBuilder<List<Map<String, dynamic>>>(
+        future: supabase.from('profiles').select().eq('id', uid).limit(1),
         builder: (context, userSnap) {
           if (userSnap.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
@@ -37,8 +35,8 @@ class EventsScreen extends StatelessWidget {
             );
           }
 
-          final collegeId = userSnap.hasData
-              ? canonicalCollegeId(userSnap.data!.data() as Map<String, dynamic>?)
+          final collegeId = (userSnap.data?.isNotEmpty ?? false)
+              ? canonicalCollegeId(userSnap.data!.first)
               : '';
           if (collegeId.isEmpty) {
             return const Center(
@@ -49,21 +47,12 @@ class EventsScreen extends StatelessWidget {
             );
           }
 
-          return StreamBuilder<QuerySnapshot>(
-            // Same college-scoped shape as the posts feed query
-            // (firestore.indexes.json has a matching composite index:
-            // collegeId ASC, startDate ASC, __name__ ASC). isActive is
-            // filtered client-side rather than added to the query, the
-            // same choice moments_screen.dart makes for its own
-            // client-only expiry filter — avoids a second equality clause
-            // (and therefore a wider composite index) for a field nothing
-            // currently ever sets to false.
-            stream: FirebaseFirestore.instance
-                .collection('events')
-                .where('collegeId', isEqualTo: collegeId)
-                .orderBy('startDate')
-                .limit(100)
-                .snapshots(),
+          return StreamBuilder<List<Map<String, dynamic>>>(
+            stream: supabase
+                .from('events')
+                .stream(primaryKey: ['id'])
+                .eq('college_id', collegeId)
+                .order('start_date'),
             builder: (context, snap) {
               if (snap.hasError) {
                 return const Center(
@@ -78,10 +67,8 @@ class EventsScreen extends StatelessWidget {
                 return const Center(child: CircularProgressIndicator());
               }
 
-              final docs = snap.data!.docs.where((d) {
-                final data = d.data() as Map<String, dynamic>;
-                return data['isActive'] != false;
-              }).toList();
+              final docs =
+                  snap.data!.where((d) => d['is_active'] != false).toList();
 
               if (docs.isEmpty) {
                 return const Center(
@@ -95,10 +82,7 @@ class EventsScreen extends StatelessWidget {
               return ListView.builder(
                 padding: const EdgeInsets.all(16),
                 itemCount: docs.length,
-                itemBuilder: (context, i) {
-                  final data = docs[i].data() as Map<String, dynamic>;
-                  return _EventCard(data: data);
-                },
+                itemBuilder: (context, i) => _EventCard(data: docs[i]),
               );
             },
           );
@@ -114,8 +98,9 @@ class _EventCard extends StatelessWidget {
   const _EventCard({required this.data});
 
   String _fmt(dynamic ts) {
-    if (ts is! Timestamp) return '';
-    final d = ts.toDate();
+    if (ts is! String) return '';
+    final d = DateTime.tryParse(ts);
+    if (d == null) return '';
     return '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
   }
 
@@ -123,18 +108,14 @@ class _EventCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final title = (data['title'] as String?)?.trim();
     if (title == null || title.isEmpty) {
-      // Defensive: a doc missing its required title shouldn't crash the
-      // list (the create rule requires it, but this stays safe against any
-      // legacy/malformed doc the same way feed_screen.dart already guards
-      // posts missing mediaPath/userId).
       return const SizedBox.shrink();
     }
 
     final description = (data['description'] as String?) ?? '';
-    final mediaPaths = (data['mediaPaths'] as List?)?.cast<String>() ?? const [];
-    final startDate = _fmt(data['startDate']);
-    final endDate = _fmt(data['endDate']);
-    final eventLink = data['eventLink'] as String?;
+    final mediaPaths = (data['media_paths'] as List?)?.cast<String>() ?? const [];
+    final startDate = _fmt(data['start_date']);
+    final endDate = _fmt(data['end_date']);
+    final eventLink = data['event_link'] as String?;
 
     return Card(
       color: Colors.white10,

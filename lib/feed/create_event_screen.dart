@@ -2,8 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../services/storage_service.dart';
 import '../auth/services/college_detector.dart';
@@ -27,13 +26,11 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
 
   late final StorageService _storageService;
 
-  static const String _websiteBase =
-      'https://demo.yourcollegeapp.com/events';
+  static const String _websiteBase = 'https://demo.yourcollegeapp.com/events';
 
   @override
   void initState() {
     super.initState();
-    // ✅ CORRECT
     _storageService = StorageService();
   }
 
@@ -75,21 +72,14 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     setState(() => _loading = true);
 
     try {
-      final uid = FirebaseAuth.instance.currentUser!.uid;
-      final eventRef =
-      FirebaseFirestore.instance.collection('events').doc();
+      final supabase = Supabase.instance.client;
+      final uid = supabase.auth.currentUser!.id;
 
-      final eventLink = '$_websiteBase/${eventRef.id}';
-
-      // College identity for the scoped events feed (same model as campus
-      // posts): the event carries the creator's canonical collegeId and the
-      // Firestore rule requires it to match users/{uid}.collegeId on write and
-      // gates reads on it.
-      final userSnap = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(uid)
-          .get();
-      final collegeId = canonicalCollegeId(userSnap.data());
+      final profileRows =
+          await supabase.from('profiles').select().eq('id', uid).limit(1);
+      final collegeId = profileRows.isNotEmpty
+          ? canonicalCollegeId(profileRows.first)
+          : '';
       if (collegeId.isEmpty) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -101,27 +91,36 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
         return;
       }
 
+      // Postgres mints the id server-side (gen_random_uuid()), unlike
+      // Firestore's client-reserved doc().id -- insert first, then use the
+      // returned id for the storage path and eventLink, then finalize.
+      final inserted = await supabase
+          .from('events')
+          .insert({
+            'title': _titleController.text.trim(),
+            'description': _descController.text.trim(),
+            'created_by': uid,
+            'college_id': collegeId,
+            'start_date': _startDate!.toIso8601String(),
+            'end_date': _endDate!.toIso8601String(),
+          })
+          .select()
+          .single();
+      final eventId = inserted['id'] as String;
+
       final List<String> mediaPaths = [];
       for (final file in _mediaFiles) {
         final path = await _storageService.uploadEventMedia(
-          eventId: eventRef.id,
+          eventId: eventId,
           file: file,
         );
         mediaPaths.add(path);
       }
 
-      await eventRef.set({
-        'title': _titleController.text.trim(),
-        'description': _descController.text.trim(),
-        'createdBy': uid,
-        'collegeId': collegeId,
-        'mediaPaths': mediaPaths,
-        'eventLink': eventLink,
-        'startDate': Timestamp.fromDate(_startDate!),
-        'endDate': Timestamp.fromDate(_endDate!),
-        'createdAt': FieldValue.serverTimestamp(),
-        'isActive': true,
-      });
+      await supabase.from('events').update({
+        'media_paths': mediaPaths,
+        'event_link': '$_websiteBase/$eventId',
+      }).eq('id', eventId);
 
       if (!mounted) return;
       Navigator.pop(context);
@@ -146,10 +145,10 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
             onPressed: _loading ? null : _createEvent,
             child: _loading
                 ? const SizedBox(
-              width: 18,
-              height: 18,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            )
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
                 : const Text('Publish'),
           ),
         ],
@@ -209,8 +208,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
     );
   }
 
-  Widget _field(TextEditingController c, String hint,
-      {int maxLines = 1}) {
+  Widget _field(TextEditingController c, String hint, {int maxLines = 1}) {
     return TextField(
       controller: c,
       maxLines: maxLines,
