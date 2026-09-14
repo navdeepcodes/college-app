@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../moderation/text_filter.dart';
 
@@ -18,24 +17,16 @@ class ChatScreen extends StatefulWidget {
 
 class _ChatScreenState extends State<ChatScreen> {
   final TextEditingController _controller = TextEditingController();
-  final String _currentUid = FirebaseAuth.instance.currentUser!.uid;
-  late final String _chatId;
+  final String _currentUid = Supabase.instance.client.auth.currentUser!.id;
+  String? _conversationId;
   late final Future<void> _ready;
+
+  SupabaseClient get _db => Supabase.instance.client;
 
   @override
   void initState() {
     super.initState();
-
-    final ids = [_currentUid, widget.peerUid]..sort();
-    _chatId = ids.join('_');
-
-    // The messages stream (and _markDelivered's query) both require
-    // isChatMember(chatId) in firestore.rules, which reads the chat doc
-    // itself — so they can't safely start until the chat doc is known to
-    // exist. Sequenced (not fire-and-forget) so the UI can show a loading
-    // state instead of racing a permission-denied error on a brand new
-    // conversation.
-    _ready = _ensureChatExists().then((_) => _markDelivered());
+    _ready = _ensureConversationExists().then((_) => _markDelivered());
   }
 
   @override
@@ -44,84 +35,73 @@ class _ChatScreenState extends State<ChatScreen> {
     super.dispose();
   }
 
-  Future<void> _ensureChatExists() async {
-    final ref = FirebaseFirestore.instance.collection('chats').doc(_chatId);
+  List<String> get _sortedPair => [_currentUid, widget.peerUid]..sort();
 
-    bool exists = false;
-    try {
-      final snap = await ref.get();
-      exists = snap.exists;
-    } catch (_) {
-      // firestore.rules' isChatMember() reads the chat doc to check
-      // membership — for a doc that doesn't exist yet, that dereference
-      // throws rather than evaluating to "not a member", so .get() on a
-      // brand new chat always raises permission-denied instead of
-      // returning exists:false. Since _chatId is always derived from our
-      // OWN uid + the peer, the only realistic cause here is "doesn't
-      // exist yet" — treat any failure as that.
-      exists = false;
+  Future<void> _ensureConversationExists() async {
+    final pair = _sortedPair;
+
+    // A missing conversation reads back as an empty list, not an error --
+    // no try/catch workaround needed here, unlike the Firestore version
+    // (see docs/supabase-schema.md).
+    final existing = await _db
+        .from('conversations')
+        .select('id')
+        .eq('user_a', pair[0])
+        .eq('user_b', pair[1])
+        .limit(1);
+
+    if (existing.isNotEmpty) {
+      _conversationId = existing.first['id'] as String;
+      return;
     }
 
-    if (exists) return;
-
-    // members must be in the same sorted order as _chatId/ids: the
-    // firestore.rules chats.create rule requires members[0] < members[1].
-    // Writing the unsorted [_currentUid, peerUid] pair here made chat
-    // creation permission-denied for roughly half of all user pairs
-    // (whenever _currentUid sorted after peerUid).
-    final ids = [_currentUid, widget.peerUid]..sort();
     try {
-      await ref.set({
-        'members': ids,
-        'createdAt': FieldValue.serverTimestamp(),
-        'lastMessage': '',
-        'lastMessageAt': FieldValue.serverTimestamp(),
-      });
+      final inserted = await _db
+          .from('conversations')
+          .insert({'user_a': pair[0], 'user_b': pair[1]})
+          .select('id')
+          .single();
+      _conversationId = inserted['id'] as String;
     } catch (_) {
-      // Lost a create race to the peer opening this same chat at the same
-      // moment — the doc now exists with the same shape either way.
+      // Lost a create race to the peer opening this same conversation at
+      // the same moment (UNIQUE(user_a, user_b) rejects the second
+      // insert) -- the row now exists either way, so fetch it.
+      final retry = await _db
+          .from('conversations')
+          .select('id')
+          .eq('user_a', pair[0])
+          .eq('user_b', pair[1])
+          .limit(1);
+      if (retry.isNotEmpty) {
+        _conversationId = retry.first['id'] as String;
+      }
     }
   }
 
   Future<void> _markDelivered() async {
-    final snap = await FirebaseFirestore.instance
-        .collection('chats')
-        .doc(_chatId)
-        .collection('messages')
-        .where('toUid', isEqualTo: _currentUid)
-        .where('status', isEqualTo: 'sent')
-        .get();
-
-    if (snap.docs.isEmpty) return;
-    final batch = FirebaseFirestore.instance.batch();
-    for (final d in snap.docs) {
-      batch.update(d.reference, {'status': 'delivered'});
-    }
-    await batch.commit();
+    if (_conversationId == null) return;
+    await _db
+        .from('messages')
+        .update({'status': 'delivered'})
+        .eq('conversation_id', _conversationId!)
+        .eq('to_uid', _currentUid)
+        .eq('status', 'sent');
   }
 
   Future<void> _markSeen() async {
-    final snap = await FirebaseFirestore.instance
-        .collection('chats')
-        .doc(_chatId)
-        .collection('messages')
-        .where('toUid', isEqualTo: _currentUid)
-        .where('status', isEqualTo: 'delivered')
-        .get();
-
-    if (snap.docs.isEmpty) return;
-    final batch = FirebaseFirestore.instance.batch();
-    for (final d in snap.docs) {
-      batch.update(d.reference, {'status': 'seen'});
-    }
-    await batch.commit();
+    if (_conversationId == null) return;
+    await _db
+        .from('messages')
+        .update({'status': 'seen'})
+        .eq('conversation_id', _conversationId!)
+        .eq('to_uid', _currentUid)
+        .eq('status', 'delivered');
   }
 
   Future<void> _sendMessage() async {
     final text = _controller.text.trim();
-    if (text.isEmpty) return;
+    if (text.isEmpty || _conversationId == null) return;
 
-    // Moderation: block messages the content filter rejects (anon-chat policy).
     final filterResult = TextFilter.filter(text);
     if (!filterResult.isAllowed) {
       if (mounted) {
@@ -134,42 +114,38 @@ class _ChatScreenState extends State<ChatScreen> {
 
     _controller.clear();
 
-    final ref = FirebaseFirestore.instance.collection('chats').doc(_chatId);
-
-    await ref.collection('messages').add({
-      'fromUid': _currentUid,
-      'toUid': widget.peerUid,
+    await _db.from('messages').insert({
+      'conversation_id': _conversationId,
+      'from_uid': _currentUid,
+      'to_uid': widget.peerUid,
       'text': filterResult.cleanedText,
       'status': 'sent',
-      'createdAt': FieldValue.serverTimestamp(),
     });
-
-    await ref.update({
-      'lastMessage': filterResult.cleanedText,
-      'lastMessageAt': FieldValue.serverTimestamp(),
-    });
+    // conversations.last_message/last_message_at is trigger-maintained
+    // (bump_conversation_last_message) -- no follow-up update needed.
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: StreamBuilder<DocumentSnapshot>(
-          stream: FirebaseFirestore.instance
-              .collection('users')
-              .doc(widget.peerUid)
-              .snapshots(),
+        title: StreamBuilder<List<Map<String, dynamic>>>(
+          stream: _db
+              .from('profiles')
+              .stream(primaryKey: ['id'])
+              .eq('id', widget.peerUid)
+              .limit(1),
           builder: (_, snap) {
-            if (!snap.hasData || !snap.data!.exists) return const SizedBox();
-            final u = snap.data!.data() as Map<String, dynamic>;
+            if (!snap.hasData || snap.data!.isEmpty) return const SizedBox();
+            final u = snap.data!.first;
 
             return Row(
               children: [
                 CircleAvatar(
                   radius: 16,
                   backgroundImage:
-                  u['photoUrl'] != null ? NetworkImage(u['photoUrl']) : null,
-                  child: u['photoUrl'] == null
+                      u['photo_url'] != null ? NetworkImage(u['photo_url']) : null,
+                  child: u['photo_url'] == null
                       ? const Icon(Icons.person, size: 16)
                       : null,
                 ),
@@ -195,66 +171,59 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Widget _buildChatBody(BuildContext context) {
     return Column(
-        children: [
-          Expanded(
-            child: StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance
-                  .collection('chats')
-                  .doc(_chatId)
-                  .collection('messages')
-                  .orderBy('createdAt', descending: true)
-                  .limit(50)
-                  .snapshots(),
-              builder: (_, snap) {
-                if (snap.hasError) {
-                  return const Center(
-                    child: Text('Failed to load messages'),
-                  );
-                }
-
-                if (!snap.hasData) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-
-                final msgs = snap.data!.docs;
-
-                // Only worth a _markSeen() round-trip when this snapshot
-                // actually contains something the peer would want marked —
-                // avoids a redundant query+writes on every unrelated rebuild
-                // (e.g. our own optimistic send).
-                final hasUnseen = msgs.any((m) {
-                  final d = m.data() as Map<String, dynamic>;
-                  return d['toUid'] == _currentUid && d['status'] == 'delivered';
-                });
-                if (hasUnseen) {
-                  WidgetsBinding.instance
-                      .addPostFrameCallback((_) => _markSeen());
-                }
-
-                if (msgs.isEmpty) {
-                  return const Center(child: Text('Say hi 👋'));
-                }
-
-                return ListView.builder(
-                  reverse: true,
-                  itemCount: msgs.length,
-                  itemBuilder: (_, i) {
-                    final d = msgs[i].data() as Map<String, dynamic>;
-                    final isMe = d['fromUid'] == _currentUid;
-
-                    return _ChatBubble(
-                      text: d['text'],
-                      isMe: isMe,
-                      status: d['status'],
-                    );
-                  },
+      children: [
+        Expanded(
+          child: StreamBuilder<List<Map<String, dynamic>>>(
+            stream: _db
+                .from('messages')
+                .stream(primaryKey: ['id'])
+                .eq('conversation_id', _conversationId!)
+                .order('created_at', ascending: false)
+                .limit(50),
+            builder: (_, snap) {
+              if (snap.hasError) {
+                return const Center(
+                  child: Text('Failed to load messages'),
                 );
-              },
-            ),
+              }
+
+              if (!snap.hasData) {
+                return const Center(child: CircularProgressIndicator());
+              }
+
+              final msgs = snap.data!;
+
+              final hasUnseen = msgs.any((d) =>
+                  d['to_uid'] == _currentUid && d['status'] == 'delivered');
+              if (hasUnseen) {
+                WidgetsBinding.instance
+                    .addPostFrameCallback((_) => _markSeen());
+              }
+
+              if (msgs.isEmpty) {
+                return const Center(child: Text('Say hi 👋'));
+              }
+
+              return ListView.builder(
+                reverse: true,
+                itemCount: msgs.length,
+                itemBuilder: (_, i) {
+                  final d = msgs[i];
+                  final isMe = d['from_uid'] == _currentUid;
+
+                  return _ChatBubble(
+                    text: d['text'],
+                    isMe: isMe,
+                    status: d['status'],
+                  );
+                },
+              );
+            },
           ),
-          _InputBar(onSend: _sendMessage, controller: _controller),
-        ],
-      );
+        ),
+        _InputBar(onSend: _sendMessage, controller: _controller),
+      ],
+    );
   }
 }
 
@@ -313,7 +282,7 @@ class _ChatBubble extends StatelessWidget {
         padding: const EdgeInsets.all(6),
         child: Column(
           crossAxisAlignment:
-          isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+              isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
           children: [
             Container(
               padding: const EdgeInsets.all(12),

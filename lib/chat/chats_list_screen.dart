@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'chat_screen.dart';
 import 'start_conversation_screen.dart';
@@ -10,7 +9,7 @@ class ChatsListScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final uid = Supabase.instance.client.auth.currentUser!.id;
 
     return Scaffold(
       appBar: AppBar(
@@ -32,12 +31,11 @@ class ChatsListScreen extends StatelessWidget {
           ),
         ],
       ),
-
-      body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('chats')
-            .where('members', arrayContains: uid)
-            .snapshots(),
+      body: StreamBuilder<List<Map<String, dynamic>>>(
+        stream: Supabase.instance.client
+            .from('conversations')
+            .stream(primaryKey: ['id'])
+            .order('last_message_at', ascending: false),
         builder: (context, snap) {
           if (snap.hasError) {
             return const Center(child: Text('Failed to load messages'));
@@ -47,37 +45,29 @@ class ChatsListScreen extends StatelessWidget {
             return const Center(child: CircularProgressIndicator());
           }
 
-          if (!snap.hasData || snap.data!.docs.isEmpty) {
+          // RLS already scopes the stream to conversations we're a member
+          // of (conversations_select: auth.uid() in (user_a, user_b)) --
+          // this filter just narrows out any transient extra rows and
+          // makes the membership check explicit for peerUid below.
+          final chats = (snap.data ?? [])
+              .where((c) => c['user_a'] == uid || c['user_b'] == uid)
+              .toList();
+
+          if (chats.isEmpty) {
             return const _EmptyMessagesState();
           }
-
-          // 🔥 SAFELY SORT IN DART
-          final chats = snap.data!.docs.toList()
-            ..sort((a, b) {
-              final aTime =
-              (a['lastMessageAt'] as Timestamp?)?.toDate();
-              final bTime =
-              (b['lastMessageAt'] as Timestamp?)?.toDate();
-
-              if (aTime == null && bTime == null) return 0;
-              if (aTime == null) return 1;
-              if (bTime == null) return -1;
-
-              return bTime.compareTo(aTime);
-            });
 
           return ListView.separated(
             itemCount: chats.length,
             separatorBuilder: (_, __) => const Divider(indent: 72),
             itemBuilder: (context, index) {
-              final data = chats[index].data() as Map<String, dynamic>;
-              final members = List<String>.from(data['members']);
+              final data = chats[index];
               final peerUid =
-              members.firstWhere((id) => id != uid);
+                  data['user_a'] == uid ? data['user_b'] as String : data['user_a'] as String;
 
               return _ChatTile(
                 peerUid: peerUid,
-                lastMessage: data['lastMessage'] ?? '',
+                lastMessage: data['last_message'] ?? '',
               );
             },
           );
@@ -86,10 +76,6 @@ class ChatsListScreen extends StatelessWidget {
     );
   }
 }
-
-// =====================================================
-// CHAT TILE
-// =====================================================
 
 class _ChatTile extends StatelessWidget {
   final String peerUid;
@@ -102,11 +88,12 @@ class _ChatTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<DocumentSnapshot>(
-      future: FirebaseFirestore.instance
-          .collection('users')
-          .doc(peerUid)
-          .get(),
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: Supabase.instance.client
+          .from('profiles')
+          .select()
+          .eq('id', peerUid)
+          .limit(1),
       builder: (context, snap) {
         if (!snap.hasData) {
           return const ListTile(
@@ -115,16 +102,16 @@ class _ChatTile extends StatelessWidget {
           );
         }
 
-        final user = snap.data!.data() as Map<String, dynamic>?;
-        if (user == null) return const SizedBox.shrink();
+        if (snap.data!.isEmpty) return const SizedBox.shrink();
+        final user = snap.data!.first;
 
         return ListTile(
           leading: CircleAvatar(
             radius: 24,
-            backgroundImage: user['photoUrl'] != null
-                ? NetworkImage(user['photoUrl'])
+            backgroundImage: user['photo_url'] != null
+                ? NetworkImage(user['photo_url'])
                 : null,
-            child: user['photoUrl'] == null
+            child: user['photo_url'] == null
                 ? const Icon(Icons.person)
                 : null,
           ),
@@ -150,10 +137,6 @@ class _ChatTile extends StatelessWidget {
     );
   }
 }
-
-// =====================================================
-// EMPTY STATE
-// =====================================================
 
 class _EmptyMessagesState extends StatelessWidget {
   const _EmptyMessagesState();

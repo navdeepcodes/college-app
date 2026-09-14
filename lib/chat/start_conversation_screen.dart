@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'chat_screen.dart';
 
@@ -9,59 +8,60 @@ class StartConversationScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final currentUid = FirebaseAuth.instance.currentUser!.uid;
+    final currentUid = Supabase.instance.client.auth.currentUser!.id;
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Start a conversation'),
       ),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('friends')
-            .where('members', arrayContains: currentUid)
-            .snapshots(),
+      body: StreamBuilder<List<Map<String, dynamic>>>(
+        // RLS (friendships_select: auth.uid() in (user_a, user_b)) already
+        // scopes this to our own friendships.
+        stream: Supabase.instance.client
+            .from('friendships')
+            .stream(primaryKey: ['id']),
         builder: (context, snap) {
           if (snap.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
 
-          if (!snap.hasData || snap.data!.docs.isEmpty) {
+          final friendRows = (snap.data ?? [])
+              .where((f) => f['user_a'] == currentUid || f['user_b'] == currentUid)
+              .toList();
+
+          if (friendRows.isEmpty) {
             return const Center(
               child: Text('No friends yet'),
             );
           }
 
-          final friendDocs = snap.data!.docs;
-
           return ListView.builder(
-            itemCount: friendDocs.length,
+            itemCount: friendRows.length,
             itemBuilder: (context, index) {
-              final members =
-              List<String>.from(friendDocs[index]['members']);
-              final friendUid =
-              members.firstWhere((uid) => uid != currentUid);
+              final row = friendRows[index];
+              final friendUid = row['user_a'] == currentUid
+                  ? row['user_b'] as String
+                  : row['user_a'] as String;
 
-              return FutureBuilder<DocumentSnapshot>(
-                future: FirebaseFirestore.instance
-                    .collection('users')
-                    .doc(friendUid)
-                    .get(),
+              return FutureBuilder<List<Map<String, dynamic>>>(
+                future: Supabase.instance.client
+                    .from('profiles')
+                    .select()
+                    .eq('id', friendUid)
+                    .limit(1),
                 builder: (context, userSnap) {
-                  if (!userSnap.hasData) {
+                  if (!userSnap.hasData || userSnap.data!.isEmpty) {
                     return const SizedBox.shrink();
                   }
 
-                  final user =
-                  userSnap.data!.data() as Map<String, dynamic>?;
-
-                  if (user == null) return const SizedBox.shrink();
+                  final user = userSnap.data!.first;
 
                   return ListTile(
                     leading: CircleAvatar(
-                      backgroundImage: user['photoUrl'] != null
-                          ? NetworkImage(user['photoUrl'])
+                      backgroundImage: user['photo_url'] != null
+                          ? NetworkImage(user['photo_url'])
                           : null,
-                      child: user['photoUrl'] == null
+                      child: user['photo_url'] == null
                           ? const Icon(Icons.person)
                           : null,
                     ),
@@ -74,8 +74,7 @@ class StartConversationScreen extends StatelessWidget {
                       Navigator.pushReplacement(
                         context,
                         MaterialPageRoute(
-                          builder: (_) =>
-                              ChatScreen(peerUid: friendUid),
+                          builder: (_) => ChatScreen(peerUid: friendUid),
                         ),
                       );
                     },
