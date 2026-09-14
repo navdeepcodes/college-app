@@ -10,6 +10,7 @@ import '../profile/profile_screen.dart';
 import '../feed/comments_screen.dart';
 import 'post_user_header.dart';
 import 'add_create_selector_sheet.dart';
+import 'events_screen.dart';
 import '../auth/services/college_detector.dart';
 
 // Moments is restored in the codebase (screens, storage upload path,
@@ -65,6 +66,13 @@ class _FeedScreenState extends State<FeedScreen> {
                 MaterialPageRoute(builder: (_) => const MomentsScreen()),
               ),
             ),
+          _TopPillIcon(
+            icon: Icons.event_outlined,
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const EventsScreen()),
+            ),
+          ),
           _TopPillIcon(
             icon: Icons.chat_bubble_outline,
             onTap: () => Navigator.push(
