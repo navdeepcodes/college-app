@@ -43,12 +43,24 @@ class SettingsScreen extends StatelessWidget {
             ),
           ),
 
-          StreamBuilder<List<Map<String, dynamic>>>(
-            stream: Supabase.instance.client
-                .from('profiles')
-                .stream(primaryKey: ['id'])
-                .eq('id', currentUid ?? '')
-                .limit(1),
+          // A plain one-time fetch, not .stream(): anonId never changes
+          // after creation (see the "fixed and cannot be changed" copy
+          // below), and lib/navigation/bottom_nav_shell.dart's
+          // _ProfileNavIcon already holds a live .stream() on this same
+          // table+filter for the whole time this screen is on top of it.
+          // Two concurrent .stream() subscriptions with the identical
+          // table/filter shape collide at the Realtime channel level --
+          // confirmed live, on-device: the second one (this one) never
+          // received its initial snapshot at all, so this section simply
+          // never rendered, silently, for every account tested.
+          FutureBuilder<List<Map<String, dynamic>>>(
+            future: currentUid == null
+                ? Future.value(const [])
+                : Supabase.instance.client
+                    .from('profiles')
+                    .select()
+                    .eq('id', currentUid)
+                    .limit(1),
             builder: (context, snap) {
               if (!snap.hasData || snap.data!.isEmpty) {
                 return const SizedBox.shrink();
