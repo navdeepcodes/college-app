@@ -41,8 +41,21 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
     'Other',
   ];
 
+  // Found live, on-device, testing a real @rvce.edu.in signup: this list
+  // only ever had NMIT on it, so every RVCE/BMS/PES student -- all
+  // domains CollegeDetector (college_detector.dart) already recognizes
+  // and correctly resolves to the right college_id -- saw a dropdown
+  // with no real option for their own college and no free-text entry
+  // behind "Other" either; the display name would silently end up
+  // literally "Other". The canonical college_id was never wrong (it's
+  // derived from the email domain, not this list), but the college
+  // display name shown throughout the app was. Extended to match every
+  // domain CollegeDetector supports.
   final _colleges = const [
     'Nitte Meenakshi Institute of Technology',
+    'RV College of Engineering',
+    'BMS College of Engineering',
+    'PES University',
     'Other',
   ];
 
