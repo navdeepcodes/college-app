@@ -4,8 +4,6 @@ import 'dart:io';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'moment_preview_screen.dart';
@@ -141,40 +139,34 @@ class _MomentCameraScreenState extends State<MomentCameraScreen>
     required bool isVideo,
     required String visibility,
   }) async {
-    final user = FirebaseAuth.instance.currentUser;
+    final supabase = Supabase.instance.client;
+    final user = supabase.auth.currentUser;
     if (user == null) return;
 
-    final userDoc = await FirebaseFirestore.instance
-        .collection('users')
-        .doc(user.uid)
-        .get();
+    final rows = await supabase.from('profiles').select().eq('id', user.id).limit(1);
+    if (rows.isEmpty) return;
+    final data = rows.first;
 
-    final data = userDoc.data();
-    if (data == null) return;
-
-    final anonId = data['anonId'];
+    final anonId = data['anon_id'];
     final collegeId = canonicalCollegeId(data);
     if (anonId == null || collegeId.isEmpty) return;
 
-    final supabase = Supabase.instance.client;
     final ext = isVideo ? 'mp4' : 'jpg';
     final fileName = '${DateTime.now().millisecondsSinceEpoch}.$ext';
-    final path = '${user.uid}/$fileName';
+    final path = '${user.id}/$fileName';
 
     await supabase.storage.from('moments').upload(path, File(localPath));
-    final mediaUrl =
-    supabase.storage.from('moments').getPublicUrl(path);
+    final mediaUrl = supabase.storage.from('moments').getPublicUrl(path);
 
-    await FirebaseFirestore.instance.collection('moments').add({
-      'userId': user.uid,
-      'anonId': anonId,
-      'collegeId': collegeId,
-      'mediaUrl': mediaUrl,
-      'isVideo': isVideo,
+    await supabase.from('moments').insert({
+      'user_id': user.id,
+      'anon_id': anonId,
+      'college_id': collegeId,
+      'media_url': mediaUrl,
+      'is_video': isVideo,
       'visibility': visibility,
-      'createdAt': Timestamp.now(),
-      'expiresAt':
-      Timestamp.fromDate(DateTime.now().add(const Duration(hours: 3))),
+      'expires_at':
+          DateTime.now().add(const Duration(hours: 3)).toIso8601String(),
     });
   }
 

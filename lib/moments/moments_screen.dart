@@ -1,6 +1,6 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:video_player/video_player.dart';
 
 import 'moment_camera_screen.dart';
@@ -91,12 +91,17 @@ class _MomentsScreenState extends State<MomentsScreen>
       body: SafeArea(
         child: Stack(
           children: [
-            StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance
-                  .collection('moments')
-                  .orderBy('expiresAt', descending: true)
-                  .limit(200)
-                  .snapshots(),
+            StreamBuilder<List<Map<String, dynamic>>>(
+              // RLS (moments_select) already scopes this to the caller's
+              // own college and non-hidden rows -- see
+              // docs/supabase-security-model.md for why this is a real
+              // fix over the Firestore reference (allow read: if true,
+              // no collegeId check at all).
+              stream: Supabase.instance.client
+                  .from('moments')
+                  .stream(primaryKey: ['id'])
+                  .order('expires_at', ascending: false)
+                  .limit(200),
               builder: (_, snap) {
                 if (snap.hasError) {
                   return const Center(
@@ -113,12 +118,11 @@ class _MomentsScreenState extends State<MomentsScreen>
                   );
                 }
 
-                final now = Timestamp.now();
-                final docs = snap.data!.docs.where((d) {
-                  final m = d.data() as Map<String, dynamic>;
-                  if (m['isHidden'] == true) return false;
-                  final e = m['expiresAt'] as Timestamp?;
-                  return e != null && e.compareTo(now) > 0;
+                final now = DateTime.now();
+                final docs = snap.data!.where((m) {
+                  if (m['is_hidden'] == true) return false;
+                  final e = DateTime.tryParse(m['expires_at'] ?? '');
+                  return e != null && e.isAfter(now);
                 }).toList();
 
                 if (docs.isEmpty) {
@@ -128,8 +132,7 @@ class _MomentsScreenState extends State<MomentsScreen>
                   );
                 }
 
-                final doc = docs[_currentIndex % docs.length];
-                final data = doc.data() as Map<String, dynamic>;
+                final data = docs[_currentIndex % docs.length];
 
                 return GestureDetector(
                   behavior: HitTestBehavior.opaque,
@@ -150,7 +153,7 @@ class _MomentsScreenState extends State<MomentsScreen>
                           child: Transform.rotate(
                             angle: _rotation.value,
                             child: _MomentCard(
-                              docId: doc.id,
+                              docId: data['id'] as String,
                               data: data,
                               color:
                               _colors[_currentIndex % _colors.length],
@@ -224,23 +227,20 @@ class _MomentCard extends StatelessWidget {
   });
 
   bool get isVideo =>
-      (data['mediaUrl'] as String?)?.toLowerCase().endsWith('.mp4') ?? false;
+      (data['media_url'] as String?)?.toLowerCase().endsWith('.mp4') ?? false;
 
   Future<void> _report(BuildContext context) async {
-    final ref =
-    FirebaseFirestore.instance.collection('moments').doc(docId);
-
     try {
-      await ref.update({
-        'reportsCount': FieldValue.increment(1),
-      });
-
-      final snap = await ref.get();
-      final reports = (snap.data()?['reportsCount'] ?? 0) as int;
-
-      if (reports >= 3) {
-        await ref.update({'isHidden': true});
-      }
+      // Atomic increment + auto-hide-at-3, and — unlike the Firestore
+      // version — this actually succeeds for a non-owner reporting
+      // someone else's moment: report_moment() and the
+      // enforce_moments_update_columns trigger it runs through were
+      // built specifically to fix the "report always fails" bug the
+      // owner-only Firestore rule had (see
+      // docs/supabase-security-model.md). Still unreachable in the
+      // live product while Moments stays disabled.
+      await Supabase.instance.client
+          .rpc('report_moment', params: {'p_moment_id': docId});
 
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -251,8 +251,6 @@ class _MomentCard extends StatelessWidget {
         );
       }
     } catch (e) {
-      // Rules deny third-party updates to a moment doc (owner-only),
-      // so this is a permission failure, not an offline condition.
       debugPrint('Report failed: $e');
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -300,8 +298,8 @@ class _MomentCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final anonId = data['anonId'] ?? 'ANON';
-    final mediaUrl = data['mediaUrl'];
+    final anonId = data['anon_id'] ?? 'ANON';
+    final mediaUrl = data['media_url'];
     final reactions = Map<String, dynamic>.from(data['reactions'] ?? {});
 
     return Container(

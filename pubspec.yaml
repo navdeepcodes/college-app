@@ -13,15 +13,14 @@ dependencies:
 
   cupertino_icons: ^1.0.6
 
-  # ================= FIREBASE =================
-  firebase_core: ^3.6.0
-  firebase_auth: ^5.3.0
-  cloud_firestore: ^5.5.0
-
   # ================= GOOGLE SIGN IN =================
+  # Native sign-in only now -- Supabase Auth's signInWithIdToken takes the
+  # resulting token (see lib/auth/screens/login_screen.dart). No firebase_auth.
   google_sign_in: ^6.2.1
 
-  # ================= SUPABASE (STORAGE ONLY) =================
+  # ================= SUPABASE =================
+  # Primary backend: Auth, Postgres (all app data), Storage, Realtime.
+  # See docs/supabase-migration-*.md for the full migration record.
   supabase_flutter: ^2.5.0
 
   # ================= MEDIA / STORAGE =================

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:video_player/video_player.dart';
 
 class MyMomentsScreen extends StatelessWidget {
@@ -9,7 +8,7 @@ class MyMomentsScreen extends StatelessWidget {
   bool _isVideo(String url) => url.endsWith('.mp4');
 
   Future<void> _deleteMoment(BuildContext context, String id) async {
-    await FirebaseFirestore.instance.collection('moments').doc(id).delete();
+    await Supabase.instance.client.from('moments').delete().eq('id', id);
 
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -62,7 +61,7 @@ class MyMomentsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final user = FirebaseAuth.instance.currentUser;
+    final user = Supabase.instance.client.auth.currentUser;
 
     if (user == null) {
       return const Scaffold(
@@ -79,13 +78,13 @@ class MyMomentsScreen extends StatelessWidget {
         backgroundColor: Colors.black,
         title: const Text('My moments'),
       ),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('moments')
-            .where('userId', isEqualTo: user.uid)
-            .orderBy('createdAt', descending: true)
-            .limit(200)
-            .snapshots(),
+      body: StreamBuilder<List<Map<String, dynamic>>>(
+        stream: Supabase.instance.client
+            .from('moments')
+            .stream(primaryKey: ['id'])
+            .eq('user_id', user.id)
+            .order('created_at', ascending: false)
+            .limit(200),
         builder: (_, snapshot) {
           if (snapshot.hasError) {
             return const Center(
@@ -100,7 +99,7 @@ class MyMomentsScreen extends StatelessWidget {
             return const Center(child: CircularProgressIndicator());
           }
 
-          final docs = snapshot.data!.docs;
+          final docs = snapshot.data!;
 
           if (docs.isEmpty) {
             return const Center(
@@ -115,11 +114,11 @@ class MyMomentsScreen extends StatelessWidget {
             padding: const EdgeInsets.all(16),
             itemCount: docs.length,
             itemBuilder: (_, i) {
-              final data = docs[i].data() as Map<String, dynamic>;
-              final mediaUrl = data['mediaUrl'] as String?;
+              final data = docs[i];
+              final mediaUrl = data['media_url'] as String?;
               final reactions =
               Map<String, dynamic>.from(data['reactions'] ?? {});
-              final reports = data['reportsCount'] ?? 0;
+              final reports = data['reports_count'] ?? 0;
 
               return Container(
                 margin: const EdgeInsets.only(bottom: 18),
@@ -171,7 +170,7 @@ class MyMomentsScreen extends StatelessWidget {
 
                           GestureDetector(
                             onTap: () =>
-                                _confirmDelete(context, docs[i].id),
+                                _confirmDelete(context, data['id'] as String),
                             child: const Icon(
                               Icons.delete,
                               color: Colors.redAccent,
