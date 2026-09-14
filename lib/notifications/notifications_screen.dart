@@ -217,6 +217,21 @@ class _FriendRequestTileState extends State<_FriendRequestTile> {
       } else {
         await FriendService.declineRequest(requestId: widget.requestId);
       }
+      // FriendService already deleted the notification row server-side at
+      // this point, so the parent list's stream should remove this tile
+      // shortly -- but found live, on-device, watching it happen: the
+      // Realtime delete event can lag well behind the write actually
+      // completing, and this tile has no timeout of its own, so it was
+      // left permanently spinning (not a flicker -- confirmed by leaving
+      // it on screen and separately confirming via direct query that the
+      // request and notification rows were already gone). Resetting
+      // _busy here is safe even if the stream removal wins the race
+      // first (this whole tile is gone by then, so the setState below is
+      // a no-op on an unmounted State): both FriendService calls are
+      // idempotent against a row that's already deleted, so a stray
+      // second tap while briefly re-enabled just no-ops rather than
+      // erroring.
+      if (mounted) setState(() => _busy = false);
     } catch (e) {
       if (mounted) {
         messenger.showSnackBar(
@@ -225,8 +240,6 @@ class _FriendRequestTileState extends State<_FriendRequestTile> {
         setState(() => _busy = false);
       }
     }
-    // On success FriendService already deletes the notification row, so
-    // this tile disappears with the stream update.
   }
 
   @override
