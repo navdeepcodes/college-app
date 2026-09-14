@@ -1,1 +1,0 @@
-const String adminUid = "OImOQirOL7eQNftKASo4FTrF6XA3";

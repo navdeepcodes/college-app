@@ -19,11 +19,11 @@ class PostDetailScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final storage = StorageService();
 
-    final mediaPath = data['mediaPath'] as String?;
-    final userId = data['userId'] as String?;
-    final caption = data['caption'] as String?;
-    final likesCount = (data['likesCount'] ?? 0) as int;
-    final commentsCount = (data['commentsCount'] ?? 0) as int;
+    final mediaPath = data['media_path'] as String?;
+    final userId = data['user_id'] as String?;
+    final caption = data['text'] as String?;
+    final likesCount = (data['likes_count'] ?? 0) as int;
+    final commentsCount = (data['comments_count'] ?? 0) as int;
 
     if (mediaPath == null || userId == null) {
       return const Scaffold(

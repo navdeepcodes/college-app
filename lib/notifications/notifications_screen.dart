@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../clubs/admin_club_requests_screen.dart';
 import '../services/friend_service.dart';
@@ -10,9 +9,8 @@ class NotificationsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final user = FirebaseAuth.instance.currentUser;
+    final user = Supabase.instance.client.auth.currentUser;
 
-    // Prevent Android auth race condition
     if (user == null) {
       return const Scaffold(
         backgroundColor: Colors.black,
@@ -25,7 +23,7 @@ class NotificationsScreen extends StatelessWidget {
       );
     }
 
-    final uid = user.uid;
+    final uid = user.id;
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -37,13 +35,13 @@ class NotificationsScreen extends StatelessWidget {
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
       ),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('notifications')
-            .where('toUid', isEqualTo: uid)
-            .orderBy('createdAt', descending: true)
-            .limit(100)
-            .snapshots(),
+      body: StreamBuilder<List<Map<String, dynamic>>>(
+        stream: Supabase.instance.client
+            .from('notifications')
+            .stream(primaryKey: ['id'])
+            .eq('to_uid', uid)
+            .order('created_at', ascending: false)
+            .limit(100),
         builder: (context, snap) {
           if (snap.hasError) {
             return const Center(
@@ -60,7 +58,7 @@ class NotificationsScreen extends StatelessWidget {
             );
           }
 
-          if (!snap.hasData || snap.data!.docs.isEmpty) {
+          if (!snap.hasData || snap.data!.isEmpty) {
             return const Center(
               child: Text(
                 'No notifications',
@@ -69,28 +67,28 @@ class NotificationsScreen extends StatelessWidget {
             );
           }
 
-          final docs = snap.data!.docs;
+          final docs = snap.data!;
 
           return ListView.builder(
             padding: const EdgeInsets.all(12),
             itemCount: docs.length,
             itemBuilder: (_, i) {
-              final data = docs[i].data() as Map<String, dynamic>;
+              final data = docs[i];
 
               if (data['type'] == 'friend_request' &&
-                  data['fromUid'] != null &&
-                  data['requestId'] != null) {
+                  data['from_uid'] != null &&
+                  data['request_id'] != null) {
                 return _FriendRequestTile(
-                  notificationId: docs[i].id,
-                  requestId: data['requestId'],
-                  fromUid: data['fromUid'],
+                  notificationId: data['id'] as String,
+                  requestId: data['request_id'] as String,
+                  fromUid: data['from_uid'] as String,
                 );
               }
 
               if (data['type'] == 'club_request') {
                 return _ClubRequestTile(
-                  notificationId: docs[i].id,
-                  clubName: data['clubName'] ?? '',
+                  notificationId: data['id'] as String,
+                  clubName: data['club_name'] ?? '',
                 );
               }
 
@@ -149,10 +147,10 @@ class _ClubRequestTile extends StatelessWidget {
                     ),
                     child: const Text('Dismiss'),
                     onPressed: () async {
-                      await FirebaseFirestore.instance
-                          .collection('notifications')
-                          .doc(notificationId)
-                          .delete();
+                      await Supabase.instance.client
+                          .from('notifications')
+                          .delete()
+                          .eq('id', notificationId);
                     },
                   ),
                 ),
@@ -181,7 +179,7 @@ class _ClubRequestTile extends StatelessWidget {
   }
 }
 
-  // =====================================================
+// =====================================================
 // FRIEND REQUEST TILE
 // =====================================================
 
@@ -209,7 +207,7 @@ class _FriendRequestTileState extends State<_FriendRequestTile> {
     final messenger = ScaffoldMessenger.of(context);
 
     try {
-      final myUid = FirebaseAuth.instance.currentUser!.uid;
+      final myUid = Supabase.instance.client.auth.currentUser!.id;
       if (accept) {
         await FriendService.acceptRequest(
           requestId: widget.requestId,
@@ -227,9 +225,8 @@ class _FriendRequestTileState extends State<_FriendRequestTile> {
         setState(() => _busy = false);
       }
     }
-    // On success FriendService already deletes the notification doc (via
-    // _deleteRequestNotifications), so this tile disappears with the stream
-    // update — no need to reset _busy or delete it again here.
+    // On success FriendService already deletes the notification row, so
+    // this tile disappears with the stream update.
   }
 
   @override
